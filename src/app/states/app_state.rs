@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 use slint::{ModelRc, SharedString, VecModel};
 
@@ -50,5 +50,31 @@ impl AppState {
             .collect();
 
         ModelRc::new(VecModel::from(rows))
+    }
+
+    /// 現在の履歴を永続化向けにコピーする（先頭が最新）。
+    pub fn history_snapshot(&self) -> Vec<String> {
+        self.history.iter().cloned().collect()
+    }
+
+    /// 永続化データから履歴を復元する。
+    pub fn restore_history(&mut self, items: Vec<String>) {
+        let mut seen = HashSet::new();
+        let mut restored = VecDeque::new();
+
+        for item in items {
+            if item.is_empty() {
+                continue;
+            }
+            if seen.insert(item.clone()) {
+                restored.push_back(item);
+            }
+            if restored.len() >= MAX_CLIPBOARD_ITEMS {
+                break;
+            }
+        }
+
+        self.last_clipboard_text = restored.front().cloned();
+        self.history = restored;
     }
 }

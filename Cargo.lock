@@ -4768,6 +4768,8 @@ version = "0.1.0"
 dependencies = [
  "arboard",
  "rdev",
+ "serde",
+ "serde_json",
  "slint",
  "slint-build",
  "tray-icon",

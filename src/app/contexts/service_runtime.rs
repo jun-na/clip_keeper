@@ -1,11 +1,11 @@
 use crate::app::contexts::service_context::ServiceContext;
 use crate::app::services::monitor_runtime::MonitorRuntime;
-use crate::app::services::tray_service::TrayService;
+use crate::app::services::tray_runtime::TrayRuntime;
 
 // 実行中のサービス実体を保持するランタイム。
 pub struct ServiceRuntime {
     // TrayIcon は drop すると消えるため、ランタイムで保持する。
-    _tray_service: TrayService,
+    _tray_runtime: TrayRuntime,
     monitor_runtime: MonitorRuntime,
 }
 
@@ -19,13 +19,13 @@ impl ServiceRuntime {
         let ui_gateway = service_context.ui_gateway();
         ui_gateway.attach_windows(history_window, settings_window);
 
-        // TrayService は UiGateway を使ってメニュー操作をUIへ橋渡しする。
-        let tray_service = TrayService::new(ui_gateway.clone())?;
+        // TrayRuntime は UiGateway を使ってメニュー操作をUIへ橋渡しする。
+        let tray_runtime = TrayRuntime::new(ui_gateway.clone())?;
         // MonitorRuntime は ClipboardService と UiGateway を使って監視を行う。
         let monitor_runtime = MonitorRuntime::new(service_context.clipboard_service(), ui_gateway);
 
         Ok(Self {
-            _tray_service: tray_service,
+            _tray_runtime: tray_runtime,
             monitor_runtime,
         })
     }

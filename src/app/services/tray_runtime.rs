@@ -7,12 +7,12 @@ use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 use crate::app::services::ui_gateway::UiGateway;
 
 // タスクトレイとメニュー操作を扱うサービス。
-pub struct TrayService {
+pub struct TrayRuntime {
     // TrayIcon は drop で消えるため保持が必要。
     _tray_icon: TrayIcon,
 }
 
-impl TrayService {
+impl TrayRuntime {
     /// タスクトレイを生成し、メニューイベント監視を開始する。
     pub fn new(ui_gateway: Arc<UiGateway>) -> Result<Self, Box<dyn std::error::Error>> {
         let tray_menu = Menu::new();

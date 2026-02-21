@@ -13,6 +13,14 @@ mod app;
 fn main() -> Result<(), Box<dyn Error>> {
     // 依存関係（状態/サービス定義）を組み立てる。
     let app = app::contexts::composition_root::CompositionRoot::build()?;
+    // 前回終了時の履歴をロードする（読み込み失敗は継続可能）。
+    if let Err(error) = app
+        .service_context()
+        .clipboard_service()
+        .load_history_from_disk()
+    {
+        eprintln!("failed to load clipboard history: {error}");
+    }
 
     // UI本体を生成。実行中は main スコープで保持して寿命を維持する。
     let history_window = HistoryWindow::new()?;
