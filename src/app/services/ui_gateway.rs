@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
-use slint::{ComponentHandle, Weak};
+use slint::winit_030::{winit, EventResult, WinitWindowAccessor};
+use slint::{CloseRequestResponse, ComponentHandle, Weak};
 
 use crate::app::services::clipboard_service::ClipboardService;
 
@@ -61,35 +62,33 @@ impl UiGateway {
 
         if let Some(history_weak) = history_weak {
             if let Some(history_window) = history_weak.upgrade() {
-                history_window.on_request_hide({
+                history_window.window().on_close_requested({
                     let history_weak = history_weak.clone();
                     move || {
                         if let Some(window) = history_weak.upgrade() {
                             let _ = window.hide();
                         }
+                        CloseRequestResponse::KeepWindowShown
                     }
                 });
 
-                if let Some(settings_weak) = settings_weak.clone() {
-                    history_window.on_request_open_settings(move || {
-                        if let Some(window) = settings_weak.upgrade() {
-                            let _ = window.show();
-                        }
-                    });
-                }
+                hook_hide_on_focus_lost(history_window.window());
             }
         }
 
         if let Some(settings_weak) = settings_weak {
             if let Some(settings_window) = settings_weak.upgrade() {
-                settings_window.on_request_hide({
+                settings_window.window().on_close_requested({
                     let settings_weak = settings_weak.clone();
                     move || {
                         if let Some(window) = settings_weak.upgrade() {
                             let _ = window.hide();
                         }
+                        CloseRequestResponse::KeepWindowShown
                     }
                 });
+
+                hook_hide_on_focus_lost(settings_window.window());
             }
         }
     }
@@ -149,4 +148,13 @@ impl UiGateway {
             }
         });
     }
+}
+
+fn hook_hide_on_focus_lost(window: &slint::Window) {
+    window.on_winit_window_event(|slint_window, event| {
+        if let winit::event::WindowEvent::Focused(false) = event {
+            let _ = slint_window.hide();
+        }
+        EventResult::Propagate
+    });
 }

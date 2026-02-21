@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-slint = "1.14.1"
+slint = { version = "1.14.1", features = ["unstable-winit-030"] }
 arboard = "3.6.1"
 tray-icon = "0.21.2"
 rdev = "0.5.3"

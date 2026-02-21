@@ -11,6 +11,11 @@ mod app;
 
 /// アプリ起動シーケンスを実行する。
 fn main() -> Result<(), Box<dyn Error>> {
+    // DragWindow / Focusイベントを使うため winit backend を明示選択する。
+    slint::BackendSelector::new()
+        .backend_name("winit".into())
+        .select()?;
+
     // 依存関係（状態/サービス定義）を組み立てる。
     let app = app::contexts::composition_root::CompositionRoot::build()?;
     // 前回終了時の履歴をロードする（読み込み失敗は継続可能）。
@@ -37,7 +42,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
     service_runtime.start_background_services();
 
-    // Slint のメインイベントループ（ここでアプリが待機する）。
-    slint::run_event_loop()?;
+    // トレイ常駐アプリのため、全ウィンドウ非表示でも終了しないイベントループを使う。
+    slint::run_event_loop_until_quit()?;
     Ok(())
 }

@@ -1,12 +1,10 @@
-import { Button, HorizontalBox, VerticalBox } from "std-widgets.slint";
+import { VerticalBox } from "std-widgets.slint";
 
 export component HistoryWindow inherits Window {
     title: "Clip Keeper";
     width: 640px;
     height: 420px;
     in property <[string]> history-items;
-    callback request-hide();
-    callback request-open-settings();
 
     VerticalBox {
         spacing: 8px;
@@ -16,24 +14,6 @@ export component HistoryWindow inherits Window {
             text: "Clipboard History";
             font-size: 22px;
             font-weight: 700;
-        }
-
-        HorizontalBox {
-            spacing: 8px;
-
-            Button {
-                text: "Settings";
-                clicked => {
-                    root.request-open-settings();
-                }
-            }
-
-            Button {
-                text: "Close";
-                clicked => {
-                    root.request-hide();
-                }
-            }
         }
 
         Rectangle {
@@ -60,7 +40,6 @@ export component SettingsWindow inherits Window {
     title: "Clip Keeper Settings";
     width: 420px;
     height: 240px;
-    callback request-hide();
 
     VerticalBox {
         spacing: 8px;
@@ -75,13 +54,6 @@ export component SettingsWindow inherits Window {
         Text {
             wrap: word-wrap;
             text: "Base implementation. Tray menu and hotkeys are wired from Rust side. Add actual settings controls here.";
-        }
-
-        Button {
-            text: "Close";
-            clicked => {
-                root.request-hide();
-            }
         }
     }
 }
