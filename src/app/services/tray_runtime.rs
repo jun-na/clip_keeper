@@ -16,9 +16,9 @@ impl TrayRuntime {
     /// タスクトレイを生成し、メニューイベント監視を開始する。
     pub fn new(ui_gateway: Arc<UiGateway>) -> Result<Self, Box<dyn std::error::Error>> {
         let tray_menu = Menu::new();
-        let open_history_item = MenuItem::new("Open History", true, None);
-        let open_settings_item = MenuItem::new("Settings", true, None);
-        let quit_item = MenuItem::new("Quit", true, None);
+        let open_history_item = MenuItem::new("履歴を開く", true, None);
+        let open_settings_item = MenuItem::new("設定", true, None);
+        let quit_item = MenuItem::new("終了", true, None);
 
         tray_menu.append(&open_history_item)?;
         tray_menu.append(&open_settings_item)?;
@@ -48,7 +48,7 @@ impl TrayRuntime {
         let icon = Icon::from_rgba(rgba, 32, 32)?;
 
         let tray_icon = TrayIconBuilder::new()
-            .with_tooltip("Clip Keeper")
+            .with_tooltip("クリップキーパー")
             .with_icon(icon)
             .with_menu(Box::new(menu.clone()))
             .build()?;

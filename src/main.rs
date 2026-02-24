@@ -26,6 +26,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     {
         eprintln!("failed to load clipboard history: {error}");
     }
+    // 前回終了時の設定をロードする（読み込み失敗は継続可能）。
+    if let Err(error) = app.service_context().settings_service().load_from_disk() {
+        eprintln!("failed to load settings: {error}");
+    }
 
     // UI本体を生成。実行中は main スコープで保持して寿命を維持する。
     let history_window = HistoryWindow::new()?;

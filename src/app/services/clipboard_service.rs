@@ -1,6 +1,9 @@
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 use std::{env, fs, io, path::PathBuf};
 
+use rdev::{simulate, EventType, Key};
 use serde::{Deserialize, Serialize};
 use slint::{ModelRc, SharedString};
 
@@ -79,6 +82,57 @@ impl ClipboardService {
         Ok(())
     }
 
+    /// 履歴で選択した項目を貼り付け待機状態にする。
+    pub fn prepare_paste_from_history_index(&self, index: i32) -> bool {
+        if index < 0 {
+            return false;
+        }
+
+        let text = {
+            let mut app_state = self
+                .state_context
+                .app_state
+                .lock()
+                .expect("app state lock poisoned");
+            let Some(text) = app_state.history_item_at(index as usize) else {
+                return false;
+            };
+            app_state.set_pending_paste(text.clone());
+            text
+        };
+
+        // 貼り付けキー送信前にクリップボード自体も更新しておく。
+        if let Ok(mut clipboard) = arboard::Clipboard::new() {
+            let _ = clipboard.set_text(text);
+        }
+
+        true
+    }
+
+    /// 貼り付け待機があれば、フォーカス遷移後に貼り付けキーを送信する。
+    pub fn trigger_pending_paste(&self) {
+        let pending = {
+            let mut app_state = self
+                .state_context
+                .app_state
+                .lock()
+                .expect("app state lock poisoned");
+            app_state.take_pending_paste()
+        };
+
+        if pending.is_none() {
+            return;
+        }
+
+        thread::spawn(move || {
+            // 履歴ウィンドウが隠れ、別アプリにフォーカスが移るまで待つ。
+            thread::sleep(Duration::from_millis(180));
+            if let Err(error) = simulate_paste_shortcut() {
+                eprintln!("failed to simulate paste shortcut: {error:?}");
+            }
+        });
+    }
+
     fn save_history_to_disk_locked(
         &self,
         app_state: &crate::app::states::app_state::AppState,
@@ -93,6 +147,24 @@ impl ClipboardService {
         fs::write(path, json)?;
         Ok(())
     }
+}
+
+#[cfg(target_os = "macos")]
+fn simulate_paste_shortcut() -> Result<(), rdev::SimulateError> {
+    simulate(&EventType::KeyPress(Key::MetaLeft))?;
+    simulate(&EventType::KeyPress(Key::KeyV))?;
+    simulate(&EventType::KeyRelease(Key::KeyV))?;
+    simulate(&EventType::KeyRelease(Key::MetaLeft))?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn simulate_paste_shortcut() -> Result<(), rdev::SimulateError> {
+    simulate(&EventType::KeyPress(Key::ControlLeft))?;
+    simulate(&EventType::KeyPress(Key::KeyV))?;
+    simulate(&EventType::KeyRelease(Key::KeyV))?;
+    simulate(&EventType::KeyRelease(Key::ControlLeft))?;
+    Ok(())
 }
 
 fn history_file_path() -> io::Result<PathBuf> {

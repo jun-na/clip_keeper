@@ -21,8 +21,12 @@ impl ServiceRuntime {
 
         // TrayRuntime は UiGateway を使ってメニュー操作をUIへ橋渡しする。
         let tray_runtime = TrayRuntime::new(ui_gateway.clone())?;
-        // MonitorRuntime は ClipboardService と UiGateway を使って監視を行う。
-        let monitor_runtime = MonitorRuntime::new(service_context.clipboard_service(), ui_gateway);
+        // MonitorRuntime は ClipboardService / SettingsService / UiGateway を使って監視を行う。
+        let monitor_runtime = MonitorRuntime::new(
+            service_context.clipboard_service(),
+            service_context.settings_service(),
+            ui_gateway,
+        );
 
         Ok(Self {
             _tray_runtime: tray_runtime,

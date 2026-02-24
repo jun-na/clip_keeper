@@ -7,6 +7,7 @@ use rdev::{Event, EventType, Key};
 
 use crate::app::services::clipboard_service::ClipboardService;
 use crate::app::services::detectors::DoubleTapDetector;
+use crate::app::services::settings_service::SettingsService;
 use crate::app::services::ui_gateway::UiGateway;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(120);
@@ -15,15 +16,22 @@ const POLL_INTERVAL: Duration = Duration::from_millis(120);
 pub struct MonitorRuntime {
     // クリップボード履歴を状態へ反映するサービス。
     clipboard_service: Arc<ClipboardService>,
+    // ホットキー設定を参照するサービス。
+    settings_service: Arc<SettingsService>,
     // UI表示更新を依頼するサービス。
     ui_gateway: Arc<UiGateway>,
 }
 
 impl MonitorRuntime {
     /// 監視に必要なサービスを受け取って生成する。
-    pub fn new(clipboard_service: Arc<ClipboardService>, ui_gateway: Arc<UiGateway>) -> Self {
+    pub fn new(
+        clipboard_service: Arc<ClipboardService>,
+        settings_service: Arc<SettingsService>,
+        ui_gateway: Arc<UiGateway>,
+    ) -> Self {
         Self {
             clipboard_service,
+            settings_service,
             ui_gateway,
         }
     }
@@ -36,10 +44,7 @@ impl MonitorRuntime {
 
     /// クリップボードをポーリングし、変化があれば状態とUIを更新する。
     fn start_clipboard_thread(&self) {
-        // 別スレッドへ渡すため Arc を clone（実体コピーではなく共有参照を増やす）。
-        // このスレッドでは ClipboardService を使って状態へ書き込む。
         let clipboard_service = self.clipboard_service.clone();
-        // このスレッドでは UiGateway を使って履歴表示を更新する。
         let ui_gateway = self.ui_gateway.clone();
 
         thread::spawn(move || {
@@ -64,7 +69,7 @@ impl MonitorRuntime {
 
     /// グローバルホットキーを監視し、条件一致で履歴ウィンドウを表示する。
     fn start_hotkey_thread(&self) {
-        // ホットキー検知時に履歴ウィンドウを開くため UiGateway を共有する。
+        let settings_service = self.settings_service.clone();
         let ui_gateway = self.ui_gateway.clone();
 
         thread::spawn(move || {
@@ -72,28 +77,47 @@ impl MonitorRuntime {
             let mut ctrl_double_tap = DoubleTapDetector::default();
             let mut ctrl_down = false;
             let mut shift_down = false;
+            let mut combo_key_down = false;
 
             let callback = move |event: Event| match event.event_type {
-                EventType::KeyPress(key) => match key {
-                    Key::ShiftLeft | Key::ShiftRight => {
-                        shift_down = true;
-                        if shift_double_tap.register_tap(Instant::now()) {
-                            ui_gateway.show_history_window();
+                EventType::KeyPress(key) => {
+                    let settings = settings_service.current_hotkey_settings();
+
+                    match key {
+                        Key::ShiftLeft | Key::ShiftRight => {
+                            if !shift_down {
+                                shift_down = true;
+                                if settings.shift_double_tap_enabled
+                                    && shift_double_tap.register_tap(Instant::now())
+                                {
+                                    ui_gateway.show_history_window();
+                                }
+                            }
+                        }
+                        Key::ControlLeft | Key::ControlRight => {
+                            if !ctrl_down {
+                                ctrl_down = true;
+                                if settings.ctrl_double_tap_enabled
+                                    && ctrl_double_tap.register_tap(Instant::now())
+                                {
+                                    ui_gateway.show_history_window();
+                                }
+                            }
+                        }
+                        _ => {
+                            if is_combo_key(key, &settings.combo_key) {
+                                if !combo_key_down {
+                                    combo_key_down = true;
+                                    let ctrl_ok = !settings.combo_ctrl_required || ctrl_down;
+                                    let shift_ok = !settings.combo_shift_required || shift_down;
+                                    if ctrl_ok && shift_ok {
+                                        ui_gateway.show_history_window();
+                                    }
+                                }
+                            }
                         }
                     }
-                    Key::ControlLeft | Key::ControlRight => {
-                        ctrl_down = true;
-                        if ctrl_double_tap.register_tap(Instant::now()) {
-                            ui_gateway.show_history_window();
-                        }
-                    }
-                    Key::KeyH => {
-                        if ctrl_down && shift_down {
-                            ui_gateway.show_history_window();
-                        }
-                    }
-                    _ => {}
-                },
+                }
                 EventType::KeyRelease(key) => match key {
                     Key::ShiftLeft | Key::ShiftRight => {
                         shift_down = false;
@@ -101,7 +125,12 @@ impl MonitorRuntime {
                     Key::ControlLeft | Key::ControlRight => {
                         ctrl_down = false;
                     }
-                    _ => {}
+                    _ => {
+                        let settings = settings_service.current_hotkey_settings();
+                        if is_combo_key(key, &settings.combo_key) {
+                            combo_key_down = false;
+                        }
+                    }
                 },
                 _ => {}
             };
@@ -110,5 +139,56 @@ impl MonitorRuntime {
                 eprintln!("global hotkey listener failed: {error:?}");
             }
         });
+    }
+}
+
+fn is_combo_key(key: Key, configured_key: &str) -> bool {
+    if configured_key.is_empty() {
+        return key == Key::KeyH;
+    }
+
+    let c = configured_key
+        .chars()
+        .next()
+        .unwrap_or('H')
+        .to_ascii_uppercase();
+    match c {
+        'A' => key == Key::KeyA,
+        'B' => key == Key::KeyB,
+        'C' => key == Key::KeyC,
+        'D' => key == Key::KeyD,
+        'E' => key == Key::KeyE,
+        'F' => key == Key::KeyF,
+        'G' => key == Key::KeyG,
+        'H' => key == Key::KeyH,
+        'I' => key == Key::KeyI,
+        'J' => key == Key::KeyJ,
+        'K' => key == Key::KeyK,
+        'L' => key == Key::KeyL,
+        'M' => key == Key::KeyM,
+        'N' => key == Key::KeyN,
+        'O' => key == Key::KeyO,
+        'P' => key == Key::KeyP,
+        'Q' => key == Key::KeyQ,
+        'R' => key == Key::KeyR,
+        'S' => key == Key::KeyS,
+        'T' => key == Key::KeyT,
+        'U' => key == Key::KeyU,
+        'V' => key == Key::KeyV,
+        'W' => key == Key::KeyW,
+        'X' => key == Key::KeyX,
+        'Y' => key == Key::KeyY,
+        'Z' => key == Key::KeyZ,
+        '0' => key == Key::Num0,
+        '1' => key == Key::Num1,
+        '2' => key == Key::Num2,
+        '3' => key == Key::Num3,
+        '4' => key == Key::Num4,
+        '5' => key == Key::Num5,
+        '6' => key == Key::Num6,
+        '7' => key == Key::Num7,
+        '8' => key == Key::Num8,
+        '9' => key == Key::Num9,
+        _ => key == Key::KeyH,
     }
 }

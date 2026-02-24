@@ -9,6 +9,7 @@ const MAX_CLIPBOARD_ITEMS: usize = 50;
 pub struct AppState {
     history: VecDeque<String>,
     last_clipboard_text: Option<String>,
+    pending_paste_text: Option<String>,
 }
 
 impl AppState {
@@ -17,6 +18,7 @@ impl AppState {
         Self {
             history: VecDeque::new(),
             last_clipboard_text: None,
+            pending_paste_text: None,
         }
     }
 
@@ -76,5 +78,20 @@ impl AppState {
 
         self.last_clipboard_text = restored.front().cloned();
         self.history = restored;
+    }
+
+    /// 指定インデックスの履歴文字列を取得する。
+    pub fn history_item_at(&self, index: usize) -> Option<String> {
+        self.history.get(index).cloned()
+    }
+
+    /// 次にアクティブになるウィンドウへ貼り付ける文字列をセットする。
+    pub fn set_pending_paste(&mut self, text: String) {
+        self.pending_paste_text = Some(text);
+    }
+
+    /// 貼り付け待機中の文字列を取り出す（取り出し後はクリア）。
+    pub fn take_pending_paste(&mut self) -> Option<String> {
+        self.pending_paste_text.take()
     }
 }
