@@ -1,38 +1,61 @@
-# Slint Rust Template
+# ClipKeeper
 
-A template for a Rust application that's using [Slint](https://slint.rs/) for the user interface.
+ClipKeeper は、Windows 向けの軽量クリップボード履歴アプリです。  
+Rust + Slint で実装されており、タスクトレイ常駐で履歴呼び出しを行えます。
 
-## About
+## 主な機能
 
-This template helps you get started developing a Rust application with Slint as toolkit
-for the user interface. It demonstrates the integration between the `.slint` UI markup and
-Rust code, how to react to callbacks, get and set properties, and use basic widgets.
+- クリップボード履歴の収集・表示・永続化
+- 保存アイテム（タイトル/本文）管理
+- グループ管理
+- グローバルホットキーで履歴ウィンドウを表示
+  - Shift ダブルタップ
+  - Ctrl ダブルタップ
+  - 組み合わせキー（Ctrl/Shift + 任意キー）
+- タスクトレイ常駐（履歴を開く / 設定 / 終了）
+- 履歴ウィンドウのリサイズ対応
 
-## Usage
+## 動作環境
 
-1. Install Rust by following its [getting-started guide](https://www.rust-lang.org/learn/get-started).
-   Once this is done, you should have the `rustc` compiler and the `cargo` build system installed in your `PATH`.
-2. Download and extract the [ZIP archive of this repository](https://github.com/slint-ui/slint-rust-template/archive/refs/heads/main.zip).
-3. Rename the extracted directory and change into it:
-    ```
-    mv slint-rust-template-main my-project
-    cd my-project    
-    ```
-4. Build with `cargo`:
-    ```
-    cargo build
-    ```
-5. Run the application binary:
-    ```
-    cargo run
-    ```
+- OS: Windows
+- Rust (stable)
 
-We recommend using an IDE for development, along with our [LSP-based IDE integration for `.slint` files](https://github.com/slint-ui/slint/blob/master/tools/lsp/README.md). You can also load this project directly in [Visual Studio Code](https://code.visualstudio.com) and install our [Slint extension](https://marketplace.visualstudio.com/items?itemName=Slint.slint).
+## セットアップ
 
-## Next Steps
+```powershell
+cargo build
+```
 
-We hope that this template helps you get started, and that you enjoy exploring making user interfaces with Slint. To learn more
-about the Slint APIs and the `.slint` markup language, check out our [online documentation](https://slint.dev/docs).
+## 実行
 
-Don't forget to edit this readme to replace it by yours, and edit the `name =` field in `Cargo.toml` to match the name of your
-project.
+```powershell
+cargo run
+```
+
+## リリースビルド
+
+```powershell
+cargo build --release
+```
+
+生成物:
+
+- `target/release/ClipKeeper.exe`
+
+## 設定/データ保存先
+
+- `%LOCALAPPDATA%/clip_keeper/clipboard_history.json`
+- `%LOCALAPPDATA%/clip_keeper/settings.json`
+
+## アイコン
+
+- Windows 実行ファイルアイコン: `assets/app-icon.ico`
+- トレイ/ウィンドウアイコン: `assets/tray-icon.rgba`
+
+## リリースノート
+
+- `v0.9.0`: [RELEASE_NOTES_v0.9.0.md](RELEASE_NOTES_v0.9.0.md)
+
+## ライセンス
+
+このリポジトリは `LICENSE` に従います。
