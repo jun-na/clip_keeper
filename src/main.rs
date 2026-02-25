@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![windows_subsystem = "windows"]
 // エントリーポイント。
 // 依存解決・Window生成・サービス起動・UIイベントループ開始までを担当する。
 

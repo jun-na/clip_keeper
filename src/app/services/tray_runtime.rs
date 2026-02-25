@@ -38,12 +38,10 @@ impl TrayRuntime {
         })
     }
 
-    /// 単色アイコン付きの TrayIcon を作成する。
+    /// アプリアイコン付きの TrayIcon を作成する。
     fn create_tray_icon(menu: &Menu) -> Result<TrayIcon, Box<dyn std::error::Error>> {
-        let mut rgba = Vec::with_capacity(32 * 32 * 4);
-        for _ in 0..(32 * 32) {
-            rgba.extend_from_slice(&[0x0F, 0x7D, 0xD6, 0xFF]);
-        }
+        // ビルド時に生成した 32x32 RGBA アイコンデータを埋め込む
+        let rgba = include_bytes!("../../../assets/tray-icon.rgba").to_vec();
 
         let icon = Icon::from_rgba(rgba, 32, 32)?;
 

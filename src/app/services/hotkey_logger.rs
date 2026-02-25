@@ -1,29 +1,65 @@
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// ホットキートリガーのログをファイルへ追記するロガー。
 /// ログファイルは実行ファイルと同じディレクトリに `hotkey_log.txt` として保存される。
 pub struct HotkeyLogger {
     log_path: PathBuf,
+    enabled: AtomicBool,
 }
 
 impl HotkeyLogger {
     /// 実行ファイルのディレクトリを基準にログパスを決定して生成する。
     pub fn new() -> Self {
+        Self::new_with_enabled(false)
+    }
+
+    /// 実行ファイルのディレクトリを基準にログパスを決定して生成する。
+    /// `enabled` が false の場合、`log()` は何も書き込まない。
+    pub fn new_with_enabled(enabled: bool) -> Self {
         let exe_dir = std::env::current_exe()
             .ok()
             .and_then(|p| p.parent().map(|d| d.to_path_buf()))
             .unwrap_or_else(|| PathBuf::from("."));
         Self {
             log_path: exe_dir.join("hotkey_log.txt"),
+            enabled: AtomicBool::new(enabled),
         }
+    }
+
+    /// ロガーの有効/無効を切り替える。
+    #[allow(dead_code)]
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    /// ログ出力を有効化する。
+    #[allow(dead_code)]
+    pub fn enable(&self) {
+        self.set_enabled(true);
+    }
+
+    /// ログ出力を無効化する。
+    #[allow(dead_code)]
+    pub fn disable(&self) {
+        self.set_enabled(false);
+    }
+
+    /// 現在ログ出力が有効かどうかを返す。
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.load(Ordering::Relaxed)
     }
 
     /// トリガー名を含む1行のログエントリを追記する。
     /// ファイルが存在しない場合は新規作成する。書き込み失敗は静かに無視する。
     pub fn log(&self, trigger: &str) {
+        if !self.is_enabled() {
+            return;
+        }
+
         let timestamp = format_utc_now();
         let line = format!("[{timestamp}] Trigger: {trigger}\n");
         if let Ok(mut file) = OpenOptions::new()

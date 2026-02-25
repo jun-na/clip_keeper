@@ -70,6 +70,13 @@ impl UiGateway {
             *edit_saved_dialog = Some(edit_saved_dialog_window.as_weak());
         }
 
+        // 履歴ウィンドウにアプリアイコンを設定する
+        set_app_icon(history_window.window());
+        // その他のウィンドウはアイコンを非表示にする
+        remove_window_icon(settings_window.window());
+        remove_window_icon(save_dialog_window.window());
+        remove_window_icon(edit_saved_dialog_window.window());
+
         self.wire_callbacks();
     }
 
@@ -98,6 +105,15 @@ impl UiGateway {
 
         if let Some(history_weak) = history_weak {
             if let Some(history_window) = history_weak.upgrade() {
+                history_window.on_request_hide_window({
+                    let history_weak = history_weak.clone();
+                    move || {
+                        if let Some(window) = history_weak.upgrade() {
+                            let _ = window.hide();
+                        }
+                    }
+                });
+
                 history_window.on_request_select_history_item({
                     let clipboard_service = self.clipboard_service.clone();
                     let history_weak = history_weak.clone();
@@ -279,17 +295,10 @@ impl UiGateway {
                     }
                 });
 
-                settings_window.on_request_set_hotkey_ctrl_double_tap_enabled({
+                settings_window.on_request_set_hotkey_mode({
                     let settings_service = self.settings_service.clone();
-                    move |enabled| {
-                        settings_service.set_ctrl_double_tap_enabled(enabled);
-                    }
-                });
-
-                settings_window.on_request_set_hotkey_shift_double_tap_enabled({
-                    let settings_service = self.settings_service.clone();
-                    move |enabled| {
-                        settings_service.set_shift_double_tap_enabled(enabled);
+                    move |mode| {
+                        settings_service.set_hotkey_mode(mode);
                     }
                 });
 
@@ -466,8 +475,7 @@ impl UiGateway {
             if let Some(settings_window) = settings_window {
                 if let Some(window) = settings_window.upgrade() {
                     let settings = settings_service.current_hotkey_settings();
-                    window.set_hotkey_ctrl_double_tap_enabled(settings.ctrl_double_tap_enabled);
-                    window.set_hotkey_shift_double_tap_enabled(settings.shift_double_tap_enabled);
+                    window.set_hotkey_mode(settings.hotkey_mode);
                     window.set_hotkey_combo_ctrl_required(settings.combo_ctrl_required);
                     window.set_hotkey_combo_shift_required(settings.combo_shift_required);
                     window.set_hotkey_combo_key(SharedString::from(settings.combo_key));
@@ -503,6 +511,23 @@ fn hook_hide_on_focus_lost(window: &slint::Window) {
             let _ = slint_window.hide();
         }
         EventResult::Propagate
+    });
+}
+
+/// 指定ウィンドウにアプリアイコンを設定する。
+fn set_app_icon(window: &slint::Window) {
+    let rgba = include_bytes!("../../../assets/tray-icon.rgba").to_vec();
+    if let Ok(icon) = winit::window::Icon::from_rgba(rgba, 32, 32) {
+        window.with_winit_window(|winit_window: &winit::window::Window| {
+            winit_window.set_window_icon(Some(icon));
+        });
+    }
+}
+
+/// 指定ウィンドウからアイコンを除去する（デフォルトアイコン非表示）。
+fn remove_window_icon(window: &slint::Window) {
+    window.with_winit_window(|winit_window: &winit::window::Window| {
+        winit_window.set_window_icon(None);
     });
 }
 

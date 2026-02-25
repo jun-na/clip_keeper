@@ -18,6 +18,7 @@ export component HistoryWindow inherits Window {
     in-out property <int> active-tab: 0;
     in-out property <int> active-group-index: 0;
 
+    callback request-hide-window();
     callback request-select-history-item(int);
     callback request-save-history-item(int);
     callback request-move-to-front(int);
@@ -31,13 +32,13 @@ export component HistoryWindow inherits Window {
 
     // 右クリックメニュー用の状態
     property <int> ctx-target-index: -1;
-    property <length> popup-x: 0px;
-    property <length> popup-y: 0px;
+    property <bool> ctx-visible: false;
+    property <int> ctx-selected: 0;
 
     // 保存タブ右クリックメニュー用の状態
     property <int> saved-ctx-target-index: -1;
-    property <length> saved-popup-x: 0px;
-    property <length> saved-popup-y: 0px;
+    property <bool> saved-ctx-visible: false;
+    property <int> saved-ctx-selected: 0;
 
     property <length> row-height: 34px;
     property <length> saved-row-height: 52px;
@@ -46,8 +47,83 @@ export component HistoryWindow inherits Window {
 
     key-handler := FocusScope {
         key-pressed(event) => {
+            // ── コンテキストメニューが開いているときの操作 ──
+            if root.ctx-visible {
+                if event.text == Key.UpArrow || event.text == "k" {
+                    if root.ctx-selected > 0 {
+                        root.ctx-selected -= 1;
+                    }
+                    return accept;
+                }
+                if event.text == Key.DownArrow || event.text == "j" {
+                    if root.ctx-selected < 4 {
+                        root.ctx-selected += 1;
+                    }
+                    return accept;
+                }
+                if event.text == Key.Return {
+                    if root.ctx-selected == 0 { root.request-save-history-item(root.ctx-target-index); }
+                    if root.ctx-selected == 1 { root.request-move-to-front(root.ctx-target-index); }
+                    if root.ctx-selected == 2 { root.request-bulk-paste-concat(root.ctx-target-index); }
+                    if root.ctx-selected == 3 { root.request-bulk-paste-tab(root.ctx-target-index); }
+                    if root.ctx-selected == 4 { root.request-bulk-paste-newline(root.ctx-target-index); }
+                    root.ctx-visible = false;
+                    return accept;
+                }
+                if event.text == Key.Escape || event.text == " " {
+                    root.ctx-visible = false;
+                    return accept;
+                }
+                return accept;
+            }
+            if root.saved-ctx-visible {
+                if event.text == Key.UpArrow || event.text == "k" {
+                    if root.saved-ctx-selected > 0 {
+                        root.saved-ctx-selected -= 1;
+                    }
+                    return accept;
+                }
+                if event.text == Key.DownArrow || event.text == "j" {
+                    if root.saved-ctx-selected < 1 {
+                        root.saved-ctx-selected += 1;
+                    }
+                    return accept;
+                }
+                if event.text == Key.Return {
+                    if root.saved-ctx-selected == 0 { root.request-edit-saved-item(root.saved-ctx-target-index); }
+                    if root.saved-ctx-selected == 1 { root.request-delete-saved-item(root.saved-ctx-target-index); }
+                    root.saved-ctx-visible = false;
+                    return accept;
+                }
+                if event.text == Key.Escape || event.text == " " {
+                    root.saved-ctx-visible = false;
+                    return accept;
+                }
+                return accept;
+            }
+
+            // Esc で履歴ウィンドウを非表示
+            if event.text == Key.Escape {
+                root.request-hide-window();
+                return accept;
+            }
+
+            // ── 左右キー / h,l でタブ切り替え ──
+            if event.text == Key.LeftArrow || event.text == "h" {
+                if root.active-tab > 0 {
+                    root.active-tab -= 1;
+                }
+                return accept;
+            }
+            if event.text == Key.RightArrow || event.text == "l" {
+                if root.active-tab < 1 {
+                    root.active-tab += 1;
+                }
+                return accept;
+            }
+
             if root.active-tab == 0 {
-                if event.text == Key.UpArrow {
+                if event.text == Key.UpArrow || event.text == "k" {
                     if root.selected-index > 0 {
                         root.selected-index -= 1;
                         if root.selected-index * root.row-height < history-scroll.viewport-y * -1 {
@@ -56,7 +132,7 @@ export component HistoryWindow inherits Window {
                     }
                     return accept;
                 }
-                if event.text == Key.DownArrow {
+                if event.text == Key.DownArrow || event.text == "j" {
                     if root.selected-index < root.history-items.length - 1 {
                         root.selected-index += 1;
                         if (root.selected-index + 1) * root.row-height > history-scroll.viewport-y * -1 + history-scroll.visible-height {
@@ -71,9 +147,18 @@ export component HistoryWindow inherits Window {
                     }
                     return accept;
                 }
+                // Space でコンテキストメニューを開く
+                if event.text == " " {
+                    if root.history-items.length > 0 {
+                        root.ctx-target-index = root.selected-index;
+                        root.ctx-selected = 0;
+                        root.ctx-visible = true;
+                    }
+                    return accept;
+                }
             }
             if root.active-tab == 1 {
-                if event.text == Key.UpArrow {
+                if event.text == Key.UpArrow || event.text == "k" {
                     if root.saved-selected-index > 0 {
                         root.saved-selected-index -= 1;
                         if root.saved-selected-index * root.saved-row-height < saved-scroll.viewport-y * -1 {
@@ -82,7 +167,7 @@ export component HistoryWindow inherits Window {
                     }
                     return accept;
                 }
-                if event.text == Key.DownArrow {
+                if event.text == Key.DownArrow || event.text == "j" {
                     if root.saved-selected-index < root.saved-items.length - 1 {
                         root.saved-selected-index += 1;
                         if (root.saved-selected-index + 1) * root.saved-row-height > saved-scroll.viewport-y * -1 + saved-scroll.visible-height {
@@ -94,6 +179,15 @@ export component HistoryWindow inherits Window {
                 if event.text == Key.Return {
                     if root.saved-items.length > 0 {
                         root.request-select-saved-item(root.saved-selected-index);
+                    }
+                    return accept;
+                }
+                // Space でコンテキストメニューを開く
+                if event.text == " " {
+                    if root.saved-items.length > 0 {
+                        root.saved-ctx-target-index = root.saved-selected-index;
+                        root.saved-ctx-selected = 0;
+                        root.saved-ctx-visible = true;
                     }
                     return accept;
                 }
@@ -137,9 +231,8 @@ export component HistoryWindow inherits Window {
                                 pointer-event(event) => {
                                     if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
                                         root.ctx-target-index = index;
-                                        root.popup-x = self.absolute-position.x + self.mouse-x;
-                                        root.popup-y = self.absolute-position.y + self.mouse-y;
-                                        ctx-popup.show();
+                                        root.ctx-selected = 0;
+                                        root.ctx-visible = true;
                                     }
                                 }
                             }
@@ -209,9 +302,8 @@ export component HistoryWindow inherits Window {
                                     pointer-event(event) => {
                                         if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
                                             root.saved-ctx-target-index = index;
-                                            root.saved-popup-x = self.absolute-position.x + self.mouse-x;
-                                            root.saved-popup-y = self.absolute-position.y + self.mouse-y;
-                                            saved-ctx-popup.show();
+                                            root.saved-ctx-selected = 0;
+                                            root.saved-ctx-visible = true;
                                         }
                                     }
                                 }
@@ -268,30 +360,49 @@ export component HistoryWindow inherits Window {
         }
     }
 
-    // 履歴右クリックコンテキストメニュー
-    ctx-popup := PopupWindow {
-        x: root.popup-x;
-        y: root.popup-y;
-        width: 260px;
-        height: 174px;
+    // ── 履歴コンテキストメニュー（オーバーレイ） ──
+    if root.ctx-visible: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #00000040;
+
+        // 背景クリックで閉じる
+        TouchArea {
+            clicked => {
+                root.ctx-visible = false;
+            }
+        }
 
         Rectangle {
+            x: (root.width - 280px) / 2;
+            y: (root.height - 200px) / 2;
+            width: 280px;
+            height: 200px;
             background: white;
             border-width: 1px;
             border-color: #999999;
-            border-radius: 4px;
+            border-radius: 6px;
+            clip: true;
 
             VerticalLayout {
                 spacing: 0px;
+                padding: 4px;
 
                 Rectangle {
                     height: 34px;
-                    background: save-touch.has-hover ? #e8e8e8 : transparent;
                     border-radius: 4px;
+                    background: root.ctx-selected == 0 ? #cfe1ff
+                              : ctx-save-touch.has-hover ? #e8e8e8 : transparent;
 
-                    save-touch := TouchArea {
+                    ctx-save-touch := TouchArea {
                         clicked => {
                             root.request-save-history-item(root.ctx-target-index);
+                            root.ctx-visible = false;
+                        }
+                        moved => {
+                            root.ctx-selected = 0;
                         }
                     }
 
@@ -306,12 +417,17 @@ export component HistoryWindow inherits Window {
 
                 Rectangle {
                     height: 34px;
-                    background: front-touch.has-hover ? #e8e8e8 : transparent;
                     border-radius: 4px;
+                    background: root.ctx-selected == 1 ? #cfe1ff
+                              : ctx-front-touch.has-hover ? #e8e8e8 : transparent;
 
-                    front-touch := TouchArea {
+                    ctx-front-touch := TouchArea {
                         clicked => {
                             root.request-move-to-front(root.ctx-target-index);
+                            root.ctx-visible = false;
+                        }
+                        moved => {
+                            root.ctx-selected = 1;
                         }
                     }
 
@@ -324,7 +440,6 @@ export component HistoryWindow inherits Window {
                     }
                 }
 
-                // 区切り線
                 Rectangle {
                     height: 1px;
                     background: #dddddd;
@@ -332,11 +447,17 @@ export component HistoryWindow inherits Window {
 
                 Rectangle {
                     height: 34px;
-                    background: bulk-concat-touch.has-hover ? #e8e8e8 : transparent;
+                    border-radius: 4px;
+                    background: root.ctx-selected == 2 ? #cfe1ff
+                              : ctx-concat-touch.has-hover ? #e8e8e8 : transparent;
 
-                    bulk-concat-touch := TouchArea {
+                    ctx-concat-touch := TouchArea {
                         clicked => {
                             root.request-bulk-paste-concat(root.ctx-target-index);
+                            root.ctx-visible = false;
+                        }
+                        moved => {
+                            root.ctx-selected = 2;
                         }
                     }
 
@@ -351,11 +472,17 @@ export component HistoryWindow inherits Window {
 
                 Rectangle {
                     height: 34px;
-                    background: bulk-tab-touch.has-hover ? #e8e8e8 : transparent;
+                    border-radius: 4px;
+                    background: root.ctx-selected == 3 ? #cfe1ff
+                              : ctx-tab-touch.has-hover ? #e8e8e8 : transparent;
 
-                    bulk-tab-touch := TouchArea {
+                    ctx-tab-touch := TouchArea {
                         clicked => {
                             root.request-bulk-paste-tab(root.ctx-target-index);
+                            root.ctx-visible = false;
+                        }
+                        moved => {
+                            root.ctx-selected = 3;
                         }
                     }
 
@@ -370,11 +497,17 @@ export component HistoryWindow inherits Window {
 
                 Rectangle {
                     height: 34px;
-                    background: bulk-nl-touch.has-hover ? #e8e8e8 : transparent;
+                    border-radius: 4px;
+                    background: root.ctx-selected == 4 ? #cfe1ff
+                              : ctx-nl-touch.has-hover ? #e8e8e8 : transparent;
 
-                    bulk-nl-touch := TouchArea {
+                    ctx-nl-touch := TouchArea {
                         clicked => {
                             root.request-bulk-paste-newline(root.ctx-target-index);
+                            root.ctx-visible = false;
+                        }
+                        moved => {
+                            root.ctx-selected = 4;
                         }
                     }
 
@@ -390,30 +523,48 @@ export component HistoryWindow inherits Window {
         }
     }
 
-    // 保存タブ右クリックコンテキストメニュー
-    saved-ctx-popup := PopupWindow {
-        x: root.saved-popup-x;
-        y: root.saved-popup-y;
-        width: 130px;
-        height: 72px;
+    // ── 保存タブコンテキストメニュー（オーバーレイ） ──
+    if root.saved-ctx-visible: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #00000040;
+
+        TouchArea {
+            clicked => {
+                root.saved-ctx-visible = false;
+            }
+        }
 
         Rectangle {
+            x: (root.width - 180px) / 2;
+            y: (root.height - 80px) / 2;
+            width: 180px;
+            height: 80px;
             background: white;
             border-width: 1px;
             border-color: #999999;
-            border-radius: 4px;
+            border-radius: 6px;
+            clip: true;
 
             VerticalLayout {
                 spacing: 0px;
+                padding: 4px;
 
                 Rectangle {
                     height: 34px;
-                    background: edit-touch.has-hover ? #e8e8e8 : transparent;
                     border-radius: 4px;
+                    background: root.saved-ctx-selected == 0 ? #cfe1ff
+                              : saved-edit-touch.has-hover ? #e8e8e8 : transparent;
 
-                    edit-touch := TouchArea {
+                    saved-edit-touch := TouchArea {
                         clicked => {
                             root.request-edit-saved-item(root.saved-ctx-target-index);
+                            root.saved-ctx-visible = false;
+                        }
+                        moved => {
+                            root.saved-ctx-selected = 0;
                         }
                     }
 
@@ -428,12 +579,17 @@ export component HistoryWindow inherits Window {
 
                 Rectangle {
                     height: 34px;
-                    background: delete-ctx-touch.has-hover ? #ffe0e0 : transparent;
                     border-radius: 4px;
+                    background: root.saved-ctx-selected == 1 ? #cfe1ff
+                              : saved-del-touch.has-hover ? #ffe0e0 : transparent;
 
-                    delete-ctx-touch := TouchArea {
+                    saved-del-touch := TouchArea {
                         clicked => {
                             root.request-delete-saved-item(root.saved-ctx-target-index);
+                            root.saved-ctx-visible = false;
+                        }
+                        moved => {
+                            root.saved-ctx-selected = 1;
                         }
                     }
 
@@ -608,14 +764,12 @@ export component SettingsWindow inherits Window {
     width: 460px;
     height: 360px;
 
-    in-out property <bool> hotkey-ctrl-double-tap-enabled: true;
-    in-out property <bool> hotkey-shift-double-tap-enabled: true;
+    in-out property <int> hotkey-mode: 0;
     in-out property <bool> hotkey-combo-ctrl-required: true;
-    in-out property <bool> hotkey-combo-shift-required: true;
+    in-out property <bool> hotkey-combo-shift-required: false;
     in-out property <string> hotkey-combo-key: "H";
 
-    callback request-set-hotkey-ctrl-double-tap-enabled(bool);
-    callback request-set-hotkey-shift-double-tap-enabled(bool);
+    callback request-set-hotkey-mode(int);
     callback request-set-hotkey-combo-ctrl-required(bool);
     callback request-set-hotkey-combo-shift-required(bool);
     callback request-set-hotkey-combo-key(string);
@@ -636,46 +790,47 @@ export component SettingsWindow inherits Window {
             font-weight: 600;
         }
 
-        CheckBox {
-            text: "Ctrl 2回押しを有効化";
-            checked <=> root.hotkey-ctrl-double-tap-enabled;
-            toggled => {
-                root.request-set-hotkey-ctrl-double-tap-enabled(self.checked);
-            }
-        }
-
-        CheckBox {
-            text: "Shift 2回押しを有効化";
-            checked <=> root.hotkey-shift-double-tap-enabled;
-            toggled => {
-                root.request-set-hotkey-shift-double-tap-enabled(self.checked);
-            }
-        }
-
-        CheckBox {
-            text: "組み合わせホットキーにCtrlを必須にする";
-            checked <=> root.hotkey-combo-ctrl-required;
-            toggled => {
-                root.request-set-hotkey-combo-ctrl-required(self.checked);
-            }
-        }
-
-        CheckBox {
-            text: "組み合わせホットキーにShiftを必須にする";
-            checked <=> root.hotkey-combo-shift-required;
-            toggled => {
-                root.request-set-hotkey-combo-shift-required(self.checked);
-            }
-        }
-
         Text {
-            text: "組み合わせキー（A-Z / 0-9、初期値 H）";
+            text: "履歴ウィンドウの呼び出し方法";
         }
 
-        LineEdit {
-            text <=> root.hotkey-combo-key;
-            edited(new-value) => {
-                root.request-set-hotkey-combo-key(new-value);
+        ComboBox {
+            model: ["Shift 2回押し", "Ctrl 2回押し", "修飾キー + ホットキー"];
+            current-index <=> root.hotkey-mode;
+            selected(value) => {
+                root.request-set-hotkey-mode(root.hotkey-mode);
+            }
+        }
+
+        if root.hotkey-mode == 2 : VerticalLayout {
+            spacing: 4px;
+            padding-top: 4px;
+
+            CheckBox {
+                text: "Ctrlを必須にする";
+                checked <=> root.hotkey-combo-ctrl-required;
+                toggled => {
+                    root.request-set-hotkey-combo-ctrl-required(self.checked);
+                }
+            }
+
+            CheckBox {
+                text: "Shiftを必須にする";
+                checked <=> root.hotkey-combo-shift-required;
+                toggled => {
+                    root.request-set-hotkey-combo-shift-required(self.checked);
+                }
+            }
+
+            Text {
+                text: "ホットキー（A-Z / 0-9、初期値 H）";
+            }
+
+            LineEdit {
+                text <=> root.hotkey-combo-key;
+                edited(new-value) => {
+                    root.request-set-hotkey-combo-key(new-value);
+                }
             }
         }
 

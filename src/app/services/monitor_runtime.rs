@@ -103,9 +103,8 @@ impl MonitorRuntime {
                             // すでに押下中の場合は何もしない
                             if !shift_down {
                                 shift_down = true;
-                                // Shift ダブルタップが有効で、かつ規定時間内の
-                                // 2 回目のタップと判定された場合に履歴を表示する
-                                if settings.shift_double_tap_enabled
+                                // モード 0（Shift 2回押し）のみダブルタップを判定する
+                                if settings.hotkey_mode == 0
                                     && shift_double_tap.register_tap(Instant::now())
                                 {
                                     logger.log(&format!("Shift double-tap ({key:?})"));
@@ -118,9 +117,8 @@ impl MonitorRuntime {
                             // Shift と同様にキーリピートを無視する
                             if !ctrl_down {
                                 ctrl_down = true;
-                                // Ctrl ダブルタップが有効で、かつ規定時間内の
-                                // 2 回目のタップと判定された場合に履歴を表示する
-                                if settings.ctrl_double_tap_enabled
+                                // モード 1（Ctrl 2回押し）のみダブルタップを判定する
+                                if settings.hotkey_mode == 1
                                     && ctrl_double_tap.register_tap(Instant::now())
                                 {
                                     logger.log(&format!("Ctrl double-tap ({key:?})"));
@@ -130,8 +128,8 @@ impl MonitorRuntime {
                         }
                         // ── コンボキー（設定されたアルファベット／数字キー）───
                         _ => {
-                            // 設定で指定されたキーかどうかを判定する
-                            if is_combo_key(key, &settings.combo_key) {
+                            // モード 2（修飾キー+ホットキー）のみコンボ判定する
+                            if settings.hotkey_mode == 2 && is_combo_key(key, &settings.combo_key) {
                                 // キーリピートによる多重起動を防ぐ
                                 if !combo_key_down {
                                     combo_key_down = true;

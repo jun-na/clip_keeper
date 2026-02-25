@@ -8,8 +8,8 @@ use crate::app::states::settings_state::SettingsState;
 
 #[derive(Debug, Clone)]
 pub struct HotkeySettings {
-    pub ctrl_double_tap_enabled: bool,
-    pub shift_double_tap_enabled: bool,
+    /// ホットキーモード: 0=Shift 2回押し, 1=Ctrl 2回押し, 2=修飾キー+ホットキー
+    pub hotkey_mode: i32,
     pub combo_ctrl_required: bool,
     pub combo_shift_required: bool,
     pub combo_key: String,
@@ -18,11 +18,19 @@ pub struct HotkeySettings {
 #[derive(Debug, Serialize, Deserialize)]
 struct PersistedSettings {
     version: u32,
-    hotkey_ctrl_double_tap_enabled: bool,
-    hotkey_shift_double_tap_enabled: bool,
+    #[serde(default)]
+    hotkey_mode: i32,
+    #[serde(default)]
     hotkey_combo_ctrl_required: bool,
+    #[serde(default)]
     hotkey_combo_shift_required: bool,
+    #[serde(default)]
     hotkey_combo_key: String,
+    // 旧フィールド（マイグレーション用に読み込みだけ対応する）
+    #[serde(default)]
+    hotkey_ctrl_double_tap_enabled: Option<bool>,
+    #[serde(default)]
+    hotkey_shift_double_tap_enabled: Option<bool>,
 }
 
 // ホットキー設定の読み書き・永続化を集約するサービス。
@@ -43,8 +51,7 @@ impl SettingsService {
             .expect("settings state lock poisoned");
 
         HotkeySettings {
-            ctrl_double_tap_enabled: state.hotkey_ctrl_double_tap_enabled,
-            shift_double_tap_enabled: state.hotkey_shift_double_tap_enabled,
+            hotkey_mode: state.hotkey_mode,
             combo_ctrl_required: state.hotkey_combo_ctrl_required,
             combo_shift_required: state.hotkey_combo_shift_required,
             combo_key: state.hotkey_combo_key.clone(),
@@ -70,8 +77,20 @@ impl SettingsService {
             .settings_state
             .lock()
             .expect("settings state lock poisoned");
-        state.hotkey_ctrl_double_tap_enabled = persisted.hotkey_ctrl_double_tap_enabled;
-        state.hotkey_shift_double_tap_enabled = persisted.hotkey_shift_double_tap_enabled;
+
+        // 旧形式からのマイグレーション: hotkey_mode が 0 で旧フィールドが存在する場合
+        if persisted.hotkey_mode == 0 {
+            if let Some(true) = persisted.hotkey_ctrl_double_tap_enabled {
+                state.hotkey_mode = 1;
+            } else if let Some(true) = persisted.hotkey_shift_double_tap_enabled {
+                state.hotkey_mode = 0;
+            } else {
+                state.hotkey_mode = persisted.hotkey_mode;
+            }
+        } else {
+            state.hotkey_mode = persisted.hotkey_mode;
+        }
+
         state.hotkey_combo_ctrl_required = persisted.hotkey_combo_ctrl_required;
         state.hotkey_combo_shift_required = persisted.hotkey_combo_shift_required;
         state.hotkey_combo_key = normalize_combo_key(&persisted.hotkey_combo_key);
@@ -79,23 +98,13 @@ impl SettingsService {
         Ok(())
     }
 
-    pub fn set_ctrl_double_tap_enabled(&self, enabled: bool) {
+    pub fn set_hotkey_mode(&self, mode: i32) {
         let mut state = self
             .state_context
             .settings_state
             .lock()
             .expect("settings state lock poisoned");
-        state.hotkey_ctrl_double_tap_enabled = enabled;
-        self.save_state_locked(&state);
-    }
-
-    pub fn set_shift_double_tap_enabled(&self, enabled: bool) {
-        let mut state = self
-            .state_context
-            .settings_state
-            .lock()
-            .expect("settings state lock poisoned");
-        state.hotkey_shift_double_tap_enabled = enabled;
+        state.hotkey_mode = mode.clamp(0, 2);
         self.save_state_locked(&state);
     }
 
@@ -137,12 +146,13 @@ impl SettingsService {
 
     fn save_to_disk_locked(&self, state: &SettingsState) -> io::Result<()> {
         let payload = PersistedSettings {
-            version: 1,
-            hotkey_ctrl_double_tap_enabled: state.hotkey_ctrl_double_tap_enabled,
-            hotkey_shift_double_tap_enabled: state.hotkey_shift_double_tap_enabled,
+            version: 2,
+            hotkey_mode: state.hotkey_mode,
             hotkey_combo_ctrl_required: state.hotkey_combo_ctrl_required,
             hotkey_combo_shift_required: state.hotkey_combo_shift_required,
             hotkey_combo_key: state.hotkey_combo_key.clone(),
+            hotkey_ctrl_double_tap_enabled: None,
+            hotkey_shift_double_tap_enabled: None,
         };
 
         let json = serde_json::to_string_pretty(&payload)
