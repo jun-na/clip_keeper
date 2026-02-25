@@ -99,31 +99,18 @@ impl MonitorRuntime {
                     match key {
                         // ── Shift キー ──────────────────────────────────────
                         Key::ShiftLeft | Key::ShiftRight => {
-                            // キーリピートによる二重登録を避けるため、
-                            // すでに押下中の場合は何もしない
+                            // コンボ判定用の押下状態のみ更新する。
+                            // ダブルタップ判定は KeyRelease 側で行う（キーリピート耐性のため）。
                             if !shift_down {
                                 shift_down = true;
-                                // モード 0（Shift 2回押し）のみダブルタップを判定する
-                                if settings.hotkey_mode == 0
-                                    && shift_double_tap.register_tap(Instant::now())
-                                {
-                                    logger.log(&format!("Shift double-tap ({key:?})"));
-                                    ui_gateway.show_history_window();
-                                }
                             }
                         }
                         // ── Ctrl キー ───────────────────────────────────────
                         Key::ControlLeft | Key::ControlRight => {
-                            // Shift と同様にキーリピートを無視する
+                            // コンボ判定用の押下状態のみ更新する。
+                            // ダブルタップ判定は KeyRelease 側で行う（キーリピート耐性のため）。
                             if !ctrl_down {
                                 ctrl_down = true;
-                                // モード 1（Ctrl 2回押し）のみダブルタップを判定する
-                                if settings.hotkey_mode == 1
-                                    && ctrl_double_tap.register_tap(Instant::now())
-                                {
-                                    logger.log(&format!("Ctrl double-tap ({key:?})"));
-                                    ui_gateway.show_history_window();
-                                }
                             }
                         }
                         // ── コンボキー（設定されたアルファベット／数字キー）───
@@ -154,10 +141,26 @@ impl MonitorRuntime {
                     // Shift が離されたら押下フラグをリセットする
                     Key::ShiftLeft | Key::ShiftRight => {
                         shift_down = false;
+                        // ダブルタップは release 間隔で判定する。
+                        // 押下イベント取りこぼし時も復帰しやすく、キーリピート誤検知も起きにくい。
+                        let settings = settings_service.current_hotkey_settings();
+                        if settings.hotkey_mode == 0
+                            && shift_double_tap.register_tap(Instant::now())
+                        {
+                            logger.log(&format!("Shift double-tap ({key:?})"));
+                            ui_gateway.show_history_window();
+                        }
                     }
                     // Ctrl が離されたら押下フラグをリセットする
                     Key::ControlLeft | Key::ControlRight => {
                         ctrl_down = false;
+                        // Shift と同様に release 間隔で判定する。
+                        let settings = settings_service.current_hotkey_settings();
+                        if settings.hotkey_mode == 1 && ctrl_double_tap.register_tap(Instant::now())
+                        {
+                            logger.log(&format!("Ctrl double-tap ({key:?})"));
+                            ui_gateway.show_history_window();
+                        }
                     }
                     // コンボキーが離されたらそのフラグをリセットする
                     _ => {
