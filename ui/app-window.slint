@@ -7,8 +7,10 @@ export struct SavedEntry {
 
 export component HistoryWindow inherits Window {
     title: "クリップキーパー";
-    width: 640px;
-    height: 420px;
+    min-width: 400px;
+    min-height: 300px;
+    preferred-width: 640px;
+    preferred-height: 420px;
 
     in property <[string]> history-items;
     in property <[SavedEntry]> saved-items;

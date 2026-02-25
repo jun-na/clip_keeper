@@ -70,13 +70,6 @@ impl UiGateway {
             *edit_saved_dialog = Some(edit_saved_dialog_window.as_weak());
         }
 
-        // 履歴ウィンドウにアプリアイコンを設定する
-        set_app_icon(history_window.window());
-        // その他のウィンドウはアイコンを非表示にする
-        remove_window_icon(settings_window.window());
-        remove_window_icon(save_dialog_window.window());
-        remove_window_icon(edit_saved_dialog_window.window());
-
         self.wire_callbacks();
     }
 
@@ -143,7 +136,8 @@ impl UiGateway {
                     let clipboard_service = self.clipboard_service.clone();
                     let save_dialog_weak = save_dialog_weak.clone();
                     move |index| {
-                        let Some(content) = clipboard_service.get_history_item_content(index) else {
+                        let Some(content) = clipboard_service.get_history_item_content(index)
+                        else {
                             return;
                         };
                         let title = generate_title_from_content(&content);
@@ -155,6 +149,7 @@ impl UiGateway {
                             dialog.set_creating_new_group(false);
                             dialog.set_new_group_name(SharedString::default());
                             let _ = dialog.show();
+                            set_app_icon(dialog.window());
                             bring_to_front(dialog.window());
                         }
                     }
@@ -226,11 +221,14 @@ impl UiGateway {
                         let Some((title, content)) = clipboard_service.get_saved_item(index) else {
                             return;
                         };
-                        if let Some(dialog) = edit_saved_dialog_weak.as_ref().and_then(|w| w.upgrade()) {
+                        if let Some(dialog) =
+                            edit_saved_dialog_weak.as_ref().and_then(|w| w.upgrade())
+                        {
                             dialog.set_edit_index(index);
                             dialog.set_edit_title(SharedString::from(&title));
                             dialog.set_edit_content(SharedString::from(&content));
                             let _ = dialog.show();
+                            set_app_icon(dialog.window());
                             bring_to_front(dialog.window());
                         }
                     }
@@ -456,6 +454,7 @@ impl UiGateway {
                     };
                     window.set_selected_index(index);
                     let _ = window.show();
+                    set_app_icon(window.window());
                     bring_to_front(window.window());
                 }
             }
@@ -480,6 +479,7 @@ impl UiGateway {
                     window.set_hotkey_combo_shift_required(settings.combo_shift_required);
                     window.set_hotkey_combo_key(SharedString::from(settings.combo_key));
                     let _ = window.show();
+                    set_app_icon(window.window());
                     bring_to_front(window.window());
                 }
             }
@@ -522,13 +522,6 @@ fn set_app_icon(window: &slint::Window) {
             winit_window.set_window_icon(Some(icon));
         });
     }
-}
-
-/// 指定ウィンドウからアイコンを除去する（デフォルトアイコン非表示）。
-fn remove_window_icon(window: &slint::Window) {
-    window.with_winit_window(|winit_window: &winit::window::Window| {
-        winit_window.set_window_icon(None);
-    });
 }
 
 fn bring_to_front(window: &slint::Window) {
