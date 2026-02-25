@@ -31,8 +31,11 @@
 - ウィンドウ表示時にアプリアイコンを反映
 
 ## 永続化ファイル
-- `%LOCALAPPDATA%/clip_keeper/clipboard_history.json`
-- `%LOCALAPPDATA%/clip_keeper/settings.json`
+
+`ClipKeeper.exe` と同じフォルダに保存されます。
+
+- `clipboard_history.json`
+- `settings.json`
 
 ## 既知事項
 - 一部環境では初回起動時にフォーカス制御が OS 側挙動の影響を受ける場合があります

@@ -22,10 +22,10 @@ Windows 向け軽量クリップボード履歴アプリです。
 
 ## データ保存先
 
-設定と履歴は以下に自動保存されます。アンインストール時は手動で削除してください。
+設定と履歴は `ClipKeeper.exe` と同じフォルダに自動保存されます。アンインストール時はフォルダごと削除してください。
 
-- `%LOCALAPPDATA%\clip_keeper\clipboard_history.json`
-- `%LOCALAPPDATA%\clip_keeper\settings.json`
+- `ClipKeeper.exe` と同じフォルダ内の `clipboard_history.json`
+- `ClipKeeper.exe` と同じフォルダ内の `settings.json`
 
 ## 動作環境
 
