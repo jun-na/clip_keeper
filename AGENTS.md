@@ -24,9 +24,11 @@
 - `src/app/services/ui_gateway.rs` - メニュー → UI 橋渡し
 
 ### 依存関係・初期化
-- `src/app/contexts/composition_root.rs` - DI コンテナ
-- `src/app/contexts/service_context.rs` - Service 定義
-- `src/app/contexts/state_context.rs` - State 管理
+- `src/app/contexts/composition_root.rs` - DI コンテナ（Context 群の組み立て）
+- `src/app/contexts/app_context.rs` - StateContext と ServiceContext を束ねる統合コンテキスト
+- `src/app/contexts/service_context.rs` - Service インスタンス定義
+- `src/app/contexts/state_context.rs` - State 中央管理
+- `src/app/contexts/service_runtime.rs` - 実行系サービス（TrayRuntime/MonitorRuntime）管理
 - `src/main.rs` - 起動シーケンス
 
 ---
@@ -35,29 +37,39 @@
 
 | ファイル | 責務 |
 |---------|------|
-| `main.rs` | 起動・初期化 |
+| `main.rs` | エントリーポイント・起動シーケンス |
+| `app/mod.rs` | app 層モジュール公開 |
 | `clipboard_service.rs` | 履歴 CRUD・永続化 |
 | `settings_service.rs` | 設定 CRUD・永続化 |
-| `ui_gateway.rs` | UI 通信集約 |
+| `ui_gateway.rs` | Rust ↔ Slint 双方向通信 |
 | `monitor_runtime.rs` | 監視ループ（クリップボード・ホットキー） |
-| `tray_runtime.rs` | タスクトレイ |
-| `app_state.rs` | 履歴状態 |
+| `tray_runtime.rs` | タスクトレイ・メニュー管理 |
+| `detectors.rs` | ダブルタップ検出ロジック |
+| `app_state.rs` | 履歴状態（VecDeque） |
 | `settings_state.rs` | 設定状態 |
-| `detectors.rs` | ダブルタップ判定 |
-| `app-window.slint` | UI 定義 |
-| `composition_root.rs` | DI コンテナ |
-| `service_context.rs` | Service インスタンス化 |
+| `app-window.slint` | UI 定義（HistoryWindow / SettingsWindow） |
+| `composition_root.rs` | DI コンテナ（Context 群の組み立て） |
+| `app_context.rs` | StateContext と ServiceContext 統合 |
+| `service_context.rs` | Service インスタンス定義 |
+| `service_runtime.rs` | 実行系サービス（TrayRuntime/MonitorRuntime）管理 |
 | `state_context.rs` | State 中央管理 |
 
 ---
 
 ## 初期化順序
 
-```
-main() 
-  ↓ CompositionRoot::build()
+``    ↓ StateContext::new()
+      ↓ ServiceContext::new(state_context)
+      ↓ AppContext::new()
   ↓ load_history_from_disk()
   ↓ load_from_disk() (settings)
+  ↓ HistoryWindow・SettingsWindow 生成
+  ↓ ServiceRuntime::new(service_context, windows)
+      ↓ attach_windows()
+      ↓ TrayRuntime::new()
+      ↓ MonitorRuntime::new()
+  ↓ service_runtime.start_background_services()
+      ↓ monitor_runtime. (settings)
   ↓ Window 生成
   ↓ ServiceRuntime::new()
   ↓ MonitorRuntime::start()

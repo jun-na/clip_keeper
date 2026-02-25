@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use slint::winit_030::{winit, EventResult, WinitWindowAccessor};
-use slint::{CloseRequestResponse, ComponentHandle, SharedString, Weak};
+use slint::{CloseRequestResponse, ComponentHandle, Model, SharedString, Weak};
 
 use crate::app::services::clipboard_service::ClipboardService;
 use crate::app::services::settings_service::SettingsService;
@@ -14,6 +14,8 @@ pub struct UiGateway {
     settings_service: Arc<SettingsService>,
     history_window: Mutex<Option<Weak<crate::HistoryWindow>>>,
     settings_window: Mutex<Option<Weak<crate::SettingsWindow>>>,
+    save_dialog_window: Mutex<Option<Weak<crate::SaveDialogWindow>>>,
+    edit_saved_dialog_window: Mutex<Option<Weak<crate::EditSavedDialogWindow>>>,
 }
 
 impl UiGateway {
@@ -27,6 +29,8 @@ impl UiGateway {
             settings_service,
             history_window: Mutex::new(None),
             settings_window: Mutex::new(None),
+            save_dialog_window: Mutex::new(None),
+            edit_saved_dialog_window: Mutex::new(None),
         }
     }
 
@@ -34,6 +38,8 @@ impl UiGateway {
         &self,
         history_window: &crate::HistoryWindow,
         settings_window: &crate::SettingsWindow,
+        save_dialog_window: &crate::SaveDialogWindow,
+        edit_saved_dialog_window: &crate::EditSavedDialogWindow,
     ) {
         {
             let mut history = self
@@ -48,6 +54,20 @@ impl UiGateway {
                 .lock()
                 .expect("settings window lock poisoned");
             *settings = Some(settings_window.as_weak());
+        }
+        {
+            let mut save_dialog = self
+                .save_dialog_window
+                .lock()
+                .expect("save dialog window lock poisoned");
+            *save_dialog = Some(save_dialog_window.as_weak());
+        }
+        {
+            let mut edit_saved_dialog = self
+                .edit_saved_dialog_window
+                .lock()
+                .expect("edit saved dialog lock poisoned");
+            *edit_saved_dialog = Some(edit_saved_dialog_window.as_weak());
         }
 
         self.wire_callbacks();
@@ -64,6 +84,16 @@ impl UiGateway {
             .settings_window
             .lock()
             .expect("settings window lock poisoned")
+            .clone();
+        let save_dialog_weak = self
+            .save_dialog_window
+            .lock()
+            .expect("save dialog window lock poisoned")
+            .clone();
+        let edit_saved_dialog_weak = self
+            .edit_saved_dialog_window
+            .lock()
+            .expect("edit saved dialog lock poisoned")
             .clone();
 
         if let Some(history_weak) = history_weak {
@@ -89,6 +119,147 @@ impl UiGateway {
                             let _ = window.hide();
                         }
                         CloseRequestResponse::KeepWindowShown
+                    }
+                });
+
+                // 右クリック「保存」→ 保存ダイアログを開く
+                history_window.on_request_save_history_item({
+                    let clipboard_service = self.clipboard_service.clone();
+                    let save_dialog_weak = save_dialog_weak.clone();
+                    move |index| {
+                        let Some(content) = clipboard_service.get_history_item_content(index) else {
+                            return;
+                        };
+                        let title = generate_title_from_content(&content);
+                        if let Some(dialog) = save_dialog_weak.as_ref().and_then(|w| w.upgrade()) {
+                            dialog.set_save_title(SharedString::from(&title));
+                            dialog.set_save_content(SharedString::from(&content));
+                            dialog.set_group_names(clipboard_service.group_names_model());
+                            dialog.set_selected_group_index(clipboard_service.active_group_index());
+                            dialog.set_creating_new_group(false);
+                            dialog.set_new_group_name(SharedString::default());
+                            let _ = dialog.show();
+                            bring_to_front(dialog.window());
+                        }
+                    }
+                });
+
+                // 右クリック「最新に移動」
+                history_window.on_request_move_to_front({
+                    let clipboard_service = self.clipboard_service.clone();
+                    let history_weak = history_weak.clone();
+                    move |index| {
+                        clipboard_service.move_history_to_front(index);
+                        if let Some(window) = history_weak.upgrade() {
+                            window.set_history_items(clipboard_service.history_model());
+                            window.set_selected_index(0);
+                        }
+                    }
+                });
+
+                // 一括貼り付け（連結）
+                history_window.on_request_bulk_paste_concat({
+                    let clipboard_service = self.clipboard_service.clone();
+                    let history_weak = history_weak.clone();
+                    move |index| {
+                        if !clipboard_service.prepare_bulk_paste(index, "") {
+                            return;
+                        }
+                        if let Some(window) = history_weak.upgrade() {
+                            let _ = window.hide();
+                        }
+                        clipboard_service.trigger_pending_paste();
+                    }
+                });
+
+                // 一括貼り付け（Tab挿入）
+                history_window.on_request_bulk_paste_tab({
+                    let clipboard_service = self.clipboard_service.clone();
+                    let history_weak = history_weak.clone();
+                    move |index| {
+                        if !clipboard_service.prepare_bulk_paste(index, "\t") {
+                            return;
+                        }
+                        if let Some(window) = history_weak.upgrade() {
+                            let _ = window.hide();
+                        }
+                        clipboard_service.trigger_pending_paste();
+                    }
+                });
+
+                // 一括貼り付け（改行挿入）
+                history_window.on_request_bulk_paste_newline({
+                    let clipboard_service = self.clipboard_service.clone();
+                    let history_weak = history_weak.clone();
+                    move |index| {
+                        if !clipboard_service.prepare_bulk_paste(index, "\n") {
+                            return;
+                        }
+                        if let Some(window) = history_weak.upgrade() {
+                            let _ = window.hide();
+                        }
+                        clipboard_service.trigger_pending_paste();
+                    }
+                });
+
+                // 保存タブ右クリック「編集」
+                history_window.on_request_edit_saved_item({
+                    let clipboard_service = self.clipboard_service.clone();
+                    let edit_saved_dialog_weak = edit_saved_dialog_weak.clone();
+                    move |index| {
+                        let Some((title, content)) = clipboard_service.get_saved_item(index) else {
+                            return;
+                        };
+                        if let Some(dialog) = edit_saved_dialog_weak.as_ref().and_then(|w| w.upgrade()) {
+                            dialog.set_edit_index(index);
+                            dialog.set_edit_title(SharedString::from(&title));
+                            dialog.set_edit_content(SharedString::from(&content));
+                            let _ = dialog.show();
+                            bring_to_front(dialog.window());
+                        }
+                    }
+                });
+
+                // グループ切り替え
+                history_window.on_request_switch_group({
+                    let clipboard_service = self.clipboard_service.clone();
+                    let history_weak = history_weak.clone();
+                    move |group_index| {
+                        let group_names = clipboard_service.group_names();
+                        if let Some(name) = group_names.get(group_index as usize) {
+                            clipboard_service.set_active_group(name.clone());
+                            if let Some(window) = history_weak.upgrade() {
+                                window.set_saved_items(clipboard_service.saved_items_model());
+                                window.set_saved_selected_index(0);
+                            }
+                        }
+                    }
+                });
+
+                // 保存済みアイテムをクリック → 貼り付け
+                history_window.on_request_select_saved_item({
+                    let clipboard_service = self.clipboard_service.clone();
+                    let history_weak = history_weak.clone();
+                    move |index| {
+                        if !clipboard_service.prepare_paste_from_saved_index(index) {
+                            return;
+                        }
+                        if let Some(window) = history_weak.upgrade() {
+                            let _ = window.hide();
+                        }
+                        clipboard_service.trigger_pending_paste();
+                    }
+                });
+
+                // 保存済みアイテムを削除
+                history_window.on_request_delete_saved_item({
+                    let clipboard_service = self.clipboard_service.clone();
+                    let history_weak = history_weak.clone();
+                    move |index| {
+                        clipboard_service.remove_saved_item(index);
+                        if let Some(window) = history_weak.upgrade() {
+                            window.set_saved_items(clipboard_service.saved_items_model());
+                        }
                     }
                 });
 
@@ -146,6 +317,108 @@ impl UiGateway {
                 hook_hide_on_focus_lost(settings_window.window());
             }
         }
+
+        // 保存ダイアログのコールバック
+        if let Some(save_dialog_weak) = save_dialog_weak {
+            if let Some(save_dialog) = save_dialog_weak.upgrade() {
+                save_dialog.on_request_confirm_save({
+                    let clipboard_service = self.clipboard_service.clone();
+                    let save_dialog_weak = save_dialog_weak.clone();
+                    let history_weak = self
+                        .history_window
+                        .lock()
+                        .expect("history window lock poisoned")
+                        .clone();
+                    move |group, title, content| {
+                        let group_name = group.to_string();
+                        clipboard_service.add_group(group_name.clone());
+                        clipboard_service.add_saved_item(
+                            &group_name,
+                            title.to_string(),
+                            content.to_string(),
+                        );
+                        if let Some(dialog) = save_dialog_weak.upgrade() {
+                            let _ = dialog.hide();
+                        }
+                        // 履歴ウィンドウの保存リスト・グループも更新
+                        if let Some(history_weak) = &history_weak {
+                            if let Some(window) = history_weak.upgrade() {
+                                window.set_group_names(clipboard_service.group_names_model());
+                                window.set_saved_items(clipboard_service.saved_items_model());
+                            }
+                        }
+                    }
+                });
+
+                save_dialog.on_request_cancel_save({
+                    let save_dialog_weak = save_dialog_weak.clone();
+                    move || {
+                        if let Some(dialog) = save_dialog_weak.upgrade() {
+                            let _ = dialog.hide();
+                        }
+                    }
+                });
+
+                save_dialog.window().on_close_requested({
+                    let save_dialog_weak = save_dialog_weak.clone();
+                    move || {
+                        if let Some(dialog) = save_dialog_weak.upgrade() {
+                            let _ = dialog.hide();
+                        }
+                        CloseRequestResponse::KeepWindowShown
+                    }
+                });
+            }
+        }
+
+        // 編集ダイアログのコールバック
+        if let Some(edit_saved_dialog_weak) = edit_saved_dialog_weak {
+            if let Some(edit_dialog) = edit_saved_dialog_weak.upgrade() {
+                edit_dialog.on_request_confirm_edit({
+                    let clipboard_service = self.clipboard_service.clone();
+                    let edit_saved_dialog_weak = edit_saved_dialog_weak.clone();
+                    let history_weak = self
+                        .history_window
+                        .lock()
+                        .expect("history window lock poisoned")
+                        .clone();
+                    move |index, title, content| {
+                        clipboard_service.update_saved_item(
+                            index,
+                            title.to_string(),
+                            content.to_string(),
+                        );
+                        if let Some(dialog) = edit_saved_dialog_weak.upgrade() {
+                            let _ = dialog.hide();
+                        }
+                        if let Some(history_weak) = &history_weak {
+                            if let Some(window) = history_weak.upgrade() {
+                                window.set_saved_items(clipboard_service.saved_items_model());
+                            }
+                        }
+                    }
+                });
+
+                edit_dialog.on_request_cancel_edit({
+                    let edit_saved_dialog_weak = edit_saved_dialog_weak.clone();
+                    move || {
+                        if let Some(dialog) = edit_saved_dialog_weak.upgrade() {
+                            let _ = dialog.hide();
+                        }
+                    }
+                });
+
+                edit_dialog.window().on_close_requested({
+                    let edit_saved_dialog_weak = edit_saved_dialog_weak.clone();
+                    move || {
+                        if let Some(dialog) = edit_saved_dialog_weak.upgrade() {
+                            let _ = dialog.hide();
+                        }
+                        CloseRequestResponse::KeepWindowShown
+                    }
+                });
+            }
+        }
     }
 
     /// 履歴データをセットして履歴ウィンドウを表示する。
@@ -161,8 +434,18 @@ impl UiGateway {
             if let Some(history_window) = history_window {
                 if let Some(window) = history_window.upgrade() {
                     window.set_history_items(clipboard_service.history_model());
-                    // ウィンドウを開くたびに選択位置を先頭にリセット
-                    window.set_selected_index(0);
+                    window.set_saved_items(clipboard_service.saved_items_model());
+                    window.set_group_names(clipboard_service.group_names_model());
+                    window.set_active_group_index(clipboard_service.active_group_index());
+                    // 前回保存された選択位置を復元する
+                    let saved_index = clipboard_service.selected_index();
+                    let item_count = window.get_history_items().row_count() as i32;
+                    let index = if item_count > 0 {
+                        saved_index.clamp(0, item_count - 1)
+                    } else {
+                        0
+                    };
+                    window.set_selected_index(index);
                     let _ = window.show();
                     bring_to_front(window.window());
                 }
@@ -228,4 +511,15 @@ fn bring_to_front(window: &slint::Window) {
         winit_window.focus_window();
         winit_window.request_user_attention(Some(winit::window::UserAttentionType::Informational));
     });
+}
+
+/// コンテンツの先頭行からタイトルを自動生成する。
+fn generate_title_from_content(content: &str) -> String {
+    let first_line = content.lines().next().unwrap_or("");
+    let truncated: String = first_line.chars().take(30).collect();
+    if truncated.chars().count() < first_line.chars().count() {
+        format!("{truncated}...")
+    } else {
+        truncated
+    }
 }

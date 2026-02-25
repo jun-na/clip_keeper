@@ -7,6 +7,7 @@ use rdev::{Event, EventType, Key};
 
 use crate::app::services::clipboard_service::ClipboardService;
 use crate::app::services::detectors::DoubleTapDetector;
+use crate::app::services::hotkey_logger::HotkeyLogger;
 use crate::app::services::settings_service::SettingsService;
 use crate::app::services::ui_gateway::UiGateway;
 
@@ -69,48 +70,80 @@ impl MonitorRuntime {
 
     /// グローバルホットキーを監視し、条件一致で履歴ウィンドウを表示する。
     fn start_hotkey_thread(&self) {
+        // Arc クローンでスレッドに所有権を移す
         let settings_service = self.settings_service.clone();
         let ui_gateway = self.ui_gateway.clone();
 
         thread::spawn(move || {
+            // HotkeyLogger はホットキースレッド専用・共有不要なのでここで生成する
+            let logger = HotkeyLogger::new();
+            // Shift キーのダブルタップ間隔を計測する検出器
             let mut shift_double_tap = DoubleTapDetector::default();
+            // Ctrl キーのダブルタップ間隔を計測する検出器
             let mut ctrl_double_tap = DoubleTapDetector::default();
+
+            // 修飾キーの現在の押下状態（キーリピートによる多重検知を防ぐ）
             let mut ctrl_down = false;
             let mut shift_down = false;
+
+            // コンボキー（Ctrl+Shift+X など）の押下状態（同じく多重検知防止）
             let mut combo_key_down = false;
 
+            // rdev に渡すイベントコールバック。キー押下／解放イベントを受け取る。
             let callback = move |event: Event| match event.event_type {
+                // ─── キー押下イベント ───────────────────────────────────────
                 EventType::KeyPress(key) => {
+                    // 毎回最新の設定を取得することで、実行中の設定変更にも追従する
                     let settings = settings_service.current_hotkey_settings();
 
                     match key {
+                        // ── Shift キー ──────────────────────────────────────
                         Key::ShiftLeft | Key::ShiftRight => {
+                            // キーリピートによる二重登録を避けるため、
+                            // すでに押下中の場合は何もしない
                             if !shift_down {
                                 shift_down = true;
+                                // Shift ダブルタップが有効で、かつ規定時間内の
+                                // 2 回目のタップと判定された場合に履歴を表示する
                                 if settings.shift_double_tap_enabled
                                     && shift_double_tap.register_tap(Instant::now())
                                 {
+                                    logger.log(&format!("Shift double-tap ({key:?})"));
                                     ui_gateway.show_history_window();
                                 }
                             }
                         }
+                        // ── Ctrl キー ───────────────────────────────────────
                         Key::ControlLeft | Key::ControlRight => {
+                            // Shift と同様にキーリピートを無視する
                             if !ctrl_down {
                                 ctrl_down = true;
+                                // Ctrl ダブルタップが有効で、かつ規定時間内の
+                                // 2 回目のタップと判定された場合に履歴を表示する
                                 if settings.ctrl_double_tap_enabled
                                     && ctrl_double_tap.register_tap(Instant::now())
                                 {
+                                    logger.log(&format!("Ctrl double-tap ({key:?})"));
                                     ui_gateway.show_history_window();
                                 }
                             }
                         }
+                        // ── コンボキー（設定されたアルファベット／数字キー）───
                         _ => {
+                            // 設定で指定されたキーかどうかを判定する
                             if is_combo_key(key, &settings.combo_key) {
+                                // キーリピートによる多重起動を防ぐ
                                 if !combo_key_down {
                                     combo_key_down = true;
+                                    // Ctrl 必須設定が OFF、または現在 Ctrl が押されていれば OK
                                     let ctrl_ok = !settings.combo_ctrl_required || ctrl_down;
+                                    // Shift 必須設定が OFF、または現在 Shift が押されていれば OK
                                     let shift_ok = !settings.combo_shift_required || shift_down;
+                                    // 両条件を満たす場合に履歴ウィンドウを表示する
                                     if ctrl_ok && shift_ok {
+                                        logger.log(&format!(
+                                            "Combo key ({key:?}) ctrl:{ctrl_down} shift:{shift_down}"
+                                        ));
                                         ui_gateway.show_history_window();
                                     }
                                 }
@@ -118,13 +151,17 @@ impl MonitorRuntime {
                         }
                     }
                 }
+                // ─── キー解放イベント ───────────────────────────────────────
                 EventType::KeyRelease(key) => match key {
+                    // Shift が離されたら押下フラグをリセットする
                     Key::ShiftLeft | Key::ShiftRight => {
                         shift_down = false;
                     }
+                    // Ctrl が離されたら押下フラグをリセットする
                     Key::ControlLeft | Key::ControlRight => {
                         ctrl_down = false;
                     }
+                    // コンボキーが離されたらそのフラグをリセットする
                     _ => {
                         let settings = settings_service.current_hotkey_settings();
                         if is_combo_key(key, &settings.combo_key) {
@@ -132,9 +169,12 @@ impl MonitorRuntime {
                         }
                     }
                 },
+                // キーボード以外のイベント（マウス等）は無視する
                 _ => {}
             };
 
+            // rdev のグローバルリスナーを開始する。
+            // このブロッキング呼び出しはスレッド終了まで戻らない。
             if let Err(error) = rdev::listen(callback) {
                 eprintln!("global hotkey listener failed: {error:?}");
             }

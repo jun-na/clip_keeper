@@ -38,11 +38,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     let settings_window = SettingsWindow::new()?;
     settings_window.hide()?;
 
+    let save_dialog_window = SaveDialogWindow::new()?;
+    save_dialog_window.hide()?;
+
+    let edit_saved_dialog_window = EditSavedDialogWindow::new()?;
+    edit_saved_dialog_window.hide()?;
+
     // 実行系サービス（トレイ/監視）を起動。
     let service_runtime = app::contexts::service_runtime::ServiceRuntime::new(
         app.service_context(),
         &history_window,
         &settings_window,
+        &save_dialog_window,
+        &edit_saved_dialog_window,
     )?;
     service_runtime.start_background_services();
 

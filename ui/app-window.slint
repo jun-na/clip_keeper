@@ -1,86 +1,602 @@
-import { CheckBox, LineEdit, VerticalBox } from "std-widgets.slint";
+import { Button, CheckBox, ComboBox, LineEdit, ScrollView, TabWidget, TextEdit, VerticalBox } from "std-widgets.slint";
+
+export struct SavedEntry {
+    title: string,
+    content: string,
+}
 
 export component HistoryWindow inherits Window {
     title: "クリップキーパー";
     width: 640px;
     height: 420px;
-    in property <[string]> history-items;
-    // キーボードで現在フォーカスされている行のインデックス（-1 = 未選択）
-    in-out property <int> selected-index: 0;
-    callback request-select-history-item(int);
 
-    // ウィンドウ表示時にキーボードフォーカスをリストスコープへ転送する
+    in property <[string]> history-items;
+    in property <[SavedEntry]> saved-items;
+    in property <[string]> group-names;
+    in-out property <int> selected-index: 0;
+    in-out property <int> saved-selected-index: 0;
+    in-out property <int> active-tab: 0;
+    in-out property <int> active-group-index: 0;
+
+    callback request-select-history-item(int);
+    callback request-save-history-item(int);
+    callback request-move-to-front(int);
+    callback request-bulk-paste-concat(int);
+    callback request-bulk-paste-tab(int);
+    callback request-bulk-paste-newline(int);
+    callback request-select-saved-item(int);
+    callback request-delete-saved-item(int);
+    callback request-edit-saved-item(int);
+    callback request-switch-group(int);
+
+    // 右クリックメニュー用の状態
+    property <int> ctx-target-index: -1;
+    property <length> popup-x: 0px;
+    property <length> popup-y: 0px;
+
+    // 保存タブ右クリックメニュー用の状態
+    property <int> saved-ctx-target-index: -1;
+    property <length> saved-popup-x: 0px;
+    property <length> saved-popup-y: 0px;
+
+    property <length> row-height: 34px;
+    property <length> saved-row-height: 52px;
+
     forward-focus: key-handler;
 
     key-handler := FocusScope {
         key-pressed(event) => {
-            if event.text == Key.UpArrow {
-                if root.selected-index > 0 {
-                    root.selected-index -= 1;
+            if root.active-tab == 0 {
+                if event.text == Key.UpArrow {
+                    if root.selected-index > 0 {
+                        root.selected-index -= 1;
+                        if root.selected-index * root.row-height < history-scroll.viewport-y * -1 {
+                            history-scroll.viewport-y = -1 * root.selected-index * root.row-height;
+                        }
+                    }
+                    return accept;
                 }
-                return accept;
+                if event.text == Key.DownArrow {
+                    if root.selected-index < root.history-items.length - 1 {
+                        root.selected-index += 1;
+                        if (root.selected-index + 1) * root.row-height > history-scroll.viewport-y * -1 + history-scroll.visible-height {
+                            history-scroll.viewport-y = -1 * ((root.selected-index + 1) * root.row-height - history-scroll.visible-height);
+                        }
+                    }
+                    return accept;
+                }
+                if event.text == Key.Return {
+                    if root.history-items.length > 0 {
+                        root.request-select-history-item(root.selected-index);
+                    }
+                    return accept;
+                }
             }
-            if event.text == Key.DownArrow {
-                if root.selected-index < root.history-items.length - 1 {
-                    root.selected-index += 1;
+            if root.active-tab == 1 {
+                if event.text == Key.UpArrow {
+                    if root.saved-selected-index > 0 {
+                        root.saved-selected-index -= 1;
+                        if root.saved-selected-index * root.saved-row-height < saved-scroll.viewport-y * -1 {
+                            saved-scroll.viewport-y = -1 * root.saved-selected-index * root.saved-row-height;
+                        }
+                    }
+                    return accept;
                 }
-                return accept;
-            }
-            if event.text == Key.Return {
-                if root.history-items.length > 0 {
-                    root.request-select-history-item(root.selected-index);
+                if event.text == Key.DownArrow {
+                    if root.saved-selected-index < root.saved-items.length - 1 {
+                        root.saved-selected-index += 1;
+                        if (root.saved-selected-index + 1) * root.saved-row-height > saved-scroll.viewport-y * -1 + saved-scroll.visible-height {
+                            saved-scroll.viewport-y = -1 * ((root.saved-selected-index + 1) * root.saved-row-height - saved-scroll.visible-height);
+                        }
+                    }
+                    return accept;
                 }
-                return accept;
+                if event.text == Key.Return {
+                    if root.saved-items.length > 0 {
+                        root.request-select-saved-item(root.saved-selected-index);
+                    }
+                    return accept;
+                }
             }
             reject
         }
 
-        VerticalBox {
-            spacing: 8px;
-            padding: 12px;
+        TabWidget {
+            current-index <=> root.active-tab;
 
-            Text {
-                text: "クリップボード履歴";
-                font-size: 22px;
-                font-weight: 700;
-            }
+            Tab {
+                title: "履歴";
 
-            Rectangle {
-                border-width: 1px;
-                border-color: #6a6a6a;
-                border-radius: 6px;
-                vertical-stretch: 1;
-                clip: true;
+                history-scroll := ScrollView {
+                    VerticalLayout {
+                        spacing: 4px;
+                        padding: 8px;
 
-                VerticalBox {
-                    spacing: 4px;
-                    padding: 8px;
+                        for item[index] in root.history-items: Rectangle {
+                            min-height: 30px;
+                            border-radius: 4px;
+                            background: hist-touch.pressed ? #b3cfff
+                                      : index == root.selected-index ? #cfe1ff
+                                      : hist-touch.has-hover ? #e0e0e0
+                                      : #f4f4f4;
 
-                    for item[index] in root.history-items: Rectangle {
-                        min-height: 30px;
-                        border-radius: 4px;
-                        // 優先度: 押下 > キーボード選択 > ホバー > 通常
-                        background: touch.pressed        ? #b3cfff
-                                  : index == root.selected-index ? #cfe1ff
-                                  : touch.has-hover     ? #e0e0e0
-                                  : #f4f4f4;
+                            Text {
+                                x: 8px;
+                                y: 6px;
+                                width: parent.width - 16px;
+                                text: "\{index + 1}. \{item}";
+                                color: #111111;
+                                wrap: word-wrap;
+                            }
 
-                        Text {
-                            x: 8px;
-                            y: 6px;
-                            width: parent.width - 16px;
-                            text: "\{index + 1}. \{item}";
-                            color: #111111;
-                            wrap: word-wrap;
-                        }
-
-                        touch := TouchArea {
-                            clicked => {
-                                root.selected-index = index;
-                                root.request-select-history-item(index);
+                            hist-touch := TouchArea {
+                                clicked => {
+                                    root.selected-index = index;
+                                    root.request-select-history-item(index);
+                                }
+                                pointer-event(event) => {
+                                    if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                                        root.ctx-target-index = index;
+                                        root.popup-x = self.absolute-position.x + self.mouse-x;
+                                        root.popup-y = self.absolute-position.y + self.mouse-y;
+                                        ctx-popup.show();
+                                    }
+                                }
                             }
                         }
                     }
+                }
+            }
+
+            Tab {
+                title: "保存済み";
+
+                VerticalLayout {
+                    spacing: 0px;
+
+                    // グループ切替バー
+                    HorizontalLayout {
+                        spacing: 6px;
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        padding-top: 6px;
+                        padding-bottom: 4px;
+                        height: 34px;
+
+                        Text {
+                            text: "グループ:";
+                            font-size: 13px;
+                            vertical-alignment: center;
+                            width: 60px;
+                        }
+
+                        ComboBox {
+                            horizontal-stretch: 1;
+                            model: root.group-names;
+                            current-index <=> root.active-group-index;
+                            selected(value) => {
+                                root.request-switch-group(root.active-group-index);
+                            }
+                        }
+                    }
+
+                    saved-scroll := ScrollView {
+                        vertical-stretch: 1;
+
+                        VerticalLayout {
+                            spacing: 4px;
+                            padding: 8px;
+
+                            if root.saved-items.length == 0: Text {
+                                text: "保存されたアイテムはありません。\n履歴タブでアイテムを右クリック →「保存」で追加できます。";
+                                color: #888888;
+                                wrap: word-wrap;
+                            }
+
+                            for entry[index] in root.saved-items: Rectangle {
+                                min-height: 48px;
+                                border-radius: 4px;
+                                background: saved-touch.pressed ? #b3cfff
+                                          : index == root.saved-selected-index ? #cfe1ff
+                                          : saved-touch.has-hover ? #e0e0e0
+                                          : #f4f4f4;
+
+                                saved-touch := TouchArea {
+                                    clicked => {
+                                        root.saved-selected-index = index;
+                                        root.request-select-saved-item(index);
+                                    }
+                                    pointer-event(event) => {
+                                        if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                                            root.saved-ctx-target-index = index;
+                                            root.saved-popup-x = self.absolute-position.x + self.mouse-x;
+                                            root.saved-popup-y = self.absolute-position.y + self.mouse-y;
+                                            saved-ctx-popup.show();
+                                        }
+                                    }
+                                }
+
+                                VerticalLayout {
+                                    x: 8px;
+                                    y: 4px;
+                                    width: parent.width - 44px;
+                                    spacing: 2px;
+
+                                    Text {
+                                        text: "\{index + 1}. \{entry.title}";
+                                        color: #111111;
+                                        font-weight: 600;
+                                        font-size: 13px;
+                                        overflow: elide;
+                                    }
+
+                                    Text {
+                                        text: entry.content;
+                                        color: #666666;
+                                        font-size: 11px;
+                                        overflow: elide;
+                                    }
+                                }
+
+                                Rectangle {
+                                    x: parent.width - 32px;
+                                    y: 12px;
+                                    width: 24px;
+                                    height: 24px;
+                                    border-radius: 4px;
+                                    background: del-touch.has-hover ? #ffcccc : transparent;
+
+                                    del-touch := TouchArea {
+                                        clicked => {
+                                            root.request-delete-saved-item(index);
+                                        }
+                                    }
+
+                                    Text {
+                                        text: "✕";
+                                        color: #cc3333;
+                                        font-size: 14px;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 履歴右クリックコンテキストメニュー
+    ctx-popup := PopupWindow {
+        x: root.popup-x;
+        y: root.popup-y;
+        width: 260px;
+        height: 174px;
+
+        Rectangle {
+            background: white;
+            border-width: 1px;
+            border-color: #999999;
+            border-radius: 4px;
+
+            VerticalLayout {
+                spacing: 0px;
+
+                Rectangle {
+                    height: 34px;
+                    background: save-touch.has-hover ? #e8e8e8 : transparent;
+                    border-radius: 4px;
+
+                    save-touch := TouchArea {
+                        clicked => {
+                            root.request-save-history-item(root.ctx-target-index);
+                        }
+                    }
+
+                    Text {
+                        text: "📌 保存";
+                        x: 10px;
+                        color: #111111;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Rectangle {
+                    height: 34px;
+                    background: front-touch.has-hover ? #e8e8e8 : transparent;
+                    border-radius: 4px;
+
+                    front-touch := TouchArea {
+                        clicked => {
+                            root.request-move-to-front(root.ctx-target-index);
+                        }
+                    }
+
+                    Text {
+                        text: "⏫ 最新に移動";
+                        x: 10px;
+                        color: #111111;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // 区切り線
+                Rectangle {
+                    height: 1px;
+                    background: #dddddd;
+                }
+
+                Rectangle {
+                    height: 34px;
+                    background: bulk-concat-touch.has-hover ? #e8e8e8 : transparent;
+
+                    bulk-concat-touch := TouchArea {
+                        clicked => {
+                            root.request-bulk-paste-concat(root.ctx-target-index);
+                        }
+                    }
+
+                    Text {
+                        text: "📋 この行以上を一括貼付(連結)";
+                        x: 10px;
+                        color: #111111;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Rectangle {
+                    height: 34px;
+                    background: bulk-tab-touch.has-hover ? #e8e8e8 : transparent;
+
+                    bulk-tab-touch := TouchArea {
+                        clicked => {
+                            root.request-bulk-paste-tab(root.ctx-target-index);
+                        }
+                    }
+
+                    Text {
+                        text: "📋 この行以上を一括貼付(Tab)";
+                        x: 10px;
+                        color: #111111;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Rectangle {
+                    height: 34px;
+                    background: bulk-nl-touch.has-hover ? #e8e8e8 : transparent;
+
+                    bulk-nl-touch := TouchArea {
+                        clicked => {
+                            root.request-bulk-paste-newline(root.ctx-target-index);
+                        }
+                    }
+
+                    Text {
+                        text: "📋 この行以上を一括貼付(改行)";
+                        x: 10px;
+                        color: #111111;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+
+    // 保存タブ右クリックコンテキストメニュー
+    saved-ctx-popup := PopupWindow {
+        x: root.saved-popup-x;
+        y: root.saved-popup-y;
+        width: 130px;
+        height: 72px;
+
+        Rectangle {
+            background: white;
+            border-width: 1px;
+            border-color: #999999;
+            border-radius: 4px;
+
+            VerticalLayout {
+                spacing: 0px;
+
+                Rectangle {
+                    height: 34px;
+                    background: edit-touch.has-hover ? #e8e8e8 : transparent;
+                    border-radius: 4px;
+
+                    edit-touch := TouchArea {
+                        clicked => {
+                            root.request-edit-saved-item(root.saved-ctx-target-index);
+                        }
+                    }
+
+                    Text {
+                        text: "✏️ 編集";
+                        x: 10px;
+                        color: #111111;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Rectangle {
+                    height: 34px;
+                    background: delete-ctx-touch.has-hover ? #ffe0e0 : transparent;
+                    border-radius: 4px;
+
+                    delete-ctx-touch := TouchArea {
+                        clicked => {
+                            root.request-delete-saved-item(root.saved-ctx-target-index);
+                        }
+                    }
+
+                    Text {
+                        text: "✕ 削除";
+                        x: 10px;
+                        color: #cc3333;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component SaveDialogWindow inherits Window {
+    title: "アイテム保存";
+    width: 500px;
+    height: 440px;
+
+    in-out property <string> save-title: "";
+    in-out property <string> save-content: "";
+    in property <[string]> group-names;
+    in-out property <int> selected-group-index: 0;
+    in-out property <bool> creating-new-group: false;
+    in-out property <string> new-group-name: "";
+
+    callback request-confirm-save(string, string, string);
+    callback request-cancel-save();
+
+    VerticalBox {
+        spacing: 8px;
+        padding: 12px;
+
+        Text {
+            text: "アイテムを保存";
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        Text { text: "グループ"; font-weight: 600; }
+        HorizontalLayout {
+            spacing: 6px;
+            height: 30px;
+
+            ComboBox {
+                horizontal-stretch: 1;
+                model: root.group-names;
+                current-index <=> root.selected-group-index;
+                enabled: !root.creating-new-group;
+            }
+
+            Button {
+                text: root.creating-new-group ? "既存" : "+ 新規";
+                clicked => {
+                    root.creating-new-group = !root.creating-new-group;
+                    root.new-group-name = "";
+                }
+            }
+        }
+
+        if root.creating-new-group: HorizontalLayout {
+            spacing: 6px;
+            height: 30px;
+
+            Text {
+                text: "新しいグループ名:";
+                font-size: 13px;
+                vertical-alignment: center;
+                width: 120px;
+            }
+
+            LineEdit {
+                horizontal-stretch: 1;
+                text <=> root.new-group-name;
+            }
+        }
+
+        Text { text: "タイトル"; font-weight: 600; }
+        LineEdit {
+            text <=> root.save-title;
+        }
+
+        Text { text: "内容"; font-weight: 600; }
+        TextEdit {
+            text <=> root.save-content;
+            vertical-stretch: 1;
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+
+            Button {
+                text: "キャンセル";
+                clicked => {
+                    root.request-cancel-save();
+                }
+            }
+
+            Button {
+                text: "保存";
+                clicked => {
+                    if root.creating-new-group && root.new-group-name != "" {
+                        root.request-confirm-save(root.new-group-name, root.save-title, root.save-content);
+                    } else if root.group-names.length > 0 {
+                        root.request-confirm-save(root.group-names[root.selected-group-index], root.save-title, root.save-content);
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component EditSavedDialogWindow inherits Window {
+    title: "アイテム編集";
+    width: 500px;
+    height: 400px;
+
+    in-out property <string> edit-title: "";
+    in-out property <string> edit-content: "";
+    in-out property <int> edit-index: -1;
+
+    callback request-confirm-edit(int, string, string);
+    callback request-cancel-edit();
+
+    VerticalBox {
+        spacing: 8px;
+        padding: 12px;
+
+        Text {
+            text: "アイテムを編集";
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        Text { text: "タイトル"; font-weight: 600; }
+        LineEdit {
+            text <=> root.edit-title;
+        }
+
+        Text { text: "内容"; font-weight: 600; }
+        TextEdit {
+            text <=> root.edit-content;
+            vertical-stretch: 1;
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+
+            Button {
+                text: "キャンセル";
+                clicked => {
+                    root.request-cancel-edit();
+                }
+            }
+
+            Button {
+                text: "保存";
+                clicked => {
+                    root.request-confirm-edit(root.edit-index, root.edit-title, root.edit-content);
                 }
             }
         }
