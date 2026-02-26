@@ -1,5 +1,10 @@
 import { Button, CheckBox, ComboBox, LineEdit, ScrollView, TabWidget, TextEdit, VerticalBox } from "std-widgets.slint";
 
+export struct HistoryEntry {
+    text: string,
+    used: bool,
+}
+
 export struct SavedEntry {
     title: string,
     content: string,
@@ -12,7 +17,7 @@ export component HistoryWindow inherits Window {
     preferred-width: 640px;
     preferred-height: 420px;
 
-    in property <[string]> history-items;
+    in property <[HistoryEntry]> history-items;
     in property <[SavedEntry]> saved-items;
     in property <[string]> group-names;
     in-out property <int> selected-index: 0;
@@ -42,7 +47,7 @@ export component HistoryWindow inherits Window {
     property <bool> saved-ctx-visible: false;
     property <int> saved-ctx-selected: 0;
 
-    property <length> row-height: 34px;
+    property <length> row-height: 48px;
     property <length> saved-row-height: 52px;
 
     forward-focus: key-handler;
@@ -209,20 +214,38 @@ export component HistoryWindow inherits Window {
                         padding: 8px;
 
                         for item[index] in root.history-items: Rectangle {
-                            min-height: 30px;
+                            height: 44px;
+                            clip: true;
                             border-radius: 4px;
                             background: hist-touch.pressed ? #b3cfff
-                                      : index == root.selected-index ? #cfe1ff
-                                      : hist-touch.has-hover ? #e0e0e0
+                                      : index == root.selected-index ? (item.used ? #f0cfe1 : #cfe1ff)
+                                      : hist-touch.has-hover ? (item.used ? #f5dde8 : #e0e0e0)
+                                      : item.used ? #fce8ef
                                       : #f4f4f4;
 
-                            Text {
-                                x: 8px;
-                                y: 6px;
-                                width: parent.width - 16px;
-                                text: "\{index + 1}. \{item}";
-                                color: #111111;
-                                wrap: word-wrap;
+                            HorizontalLayout {
+                                padding-left: 4px;
+                                padding-right: 8px;
+                                padding-top: 4px;
+                                spacing: 2px;
+
+                                Text {
+                                    width: 18px;
+                                    text: item.used ? "✓" : "";
+                                    color: #d32f2f;
+                                    font-size: 13px;
+                                    font-weight: 700;
+                                    vertical-alignment: top;
+                                    horizontal-alignment: center;
+                                }
+
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: "\{index + 1}. \{item.text}";
+                                    color: #111111;
+                                    wrap: word-wrap;
+                                    overflow: clip;
+                                }
                             }
 
                             hist-touch := TouchArea {

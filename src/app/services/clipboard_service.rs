@@ -9,7 +9,7 @@ use slint::{ModelRc, SharedString};
 
 use crate::app::contexts::state_context::StateContext;
 use crate::app::states::app_state::{SavedGroup, SavedItem};
-use crate::SavedEntry;
+use crate::{HistoryEntry, SavedEntry};
 
 // クリップボード履歴に関する状態読み書きを集約するサービス。
 pub struct ClipboardService {
@@ -34,6 +34,8 @@ struct PersistedClipboardHistory {
     items: Vec<String>,
     #[serde(default)]
     selected_index: i32,
+    #[serde(default)]
+    used_items: Vec<String>,
     // v1 互換: フラットな saved_items があればデフォルトグループへ移行
     #[serde(default)]
     saved_items: Vec<PersistedSavedItem>,
@@ -70,7 +72,7 @@ impl ClipboardService {
     }
 
     /// UI表示用の履歴モデルを取得する。
-    pub fn history_model(&self) -> ModelRc<SharedString> {
+    pub fn history_model(&self) -> ModelRc<HistoryEntry> {
         // UI表示用モデルとして履歴を読み出す。
         let app_state = self
             .state_context
@@ -103,6 +105,7 @@ impl ClipboardService {
             .expect("app state lock poisoned");
         app_state.restore_history(persisted.items);
         app_state.set_selected_index(persisted.selected_index);
+        app_state.restore_used_items(persisted.used_items);
 
         // グループ形式があればそちらを使い、なければ旧 saved_items をデフォルトグループへ移行
         if !persisted.saved_groups.is_empty() {
@@ -159,6 +162,7 @@ impl ClipboardService {
             let Some(text) = app_state.history_item_at(index as usize) else {
                 return false;
             };
+            app_state.mark_as_used(&text);
             app_state.set_pending_paste(text.clone());
             // 選択インデックスを保存する。
             app_state.set_selected_index(index);
@@ -237,6 +241,9 @@ impl ClipboardService {
             let items = app_state.history_items_up_to(up_to_index as usize);
             if items.is_empty() {
                 return false;
+            }
+            for item in &items {
+                app_state.mark_as_used(item);
             }
             let text = items.join(separator);
             app_state.set_pending_paste(text.clone());
@@ -425,6 +432,7 @@ impl ClipboardService {
             version: 1,
             items: app_state.history_snapshot(),
             selected_index: app_state.selected_index(),
+            used_items: app_state.used_items_snapshot(),
             saved_items: Vec::new(), // v2では空、saved_groupsを使用
             saved_groups: app_state
                 .saved_groups_snapshot()

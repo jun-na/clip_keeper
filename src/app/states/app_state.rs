@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, HashSet, VecDeque};
 
 use slint::{ModelRc, SharedString, VecModel};
 
-use crate::SavedEntry;
+use crate::{HistoryEntry, SavedEntry};
 
-const MAX_CLIPBOARD_ITEMS: usize = 50;
+const MAX_CLIPBOARD_ITEMS: usize = 1000;
 const DEFAULT_GROUP_NAME: &str = "デフォルト";
 
 /// 保存アイテムのドメインモデル。
@@ -25,6 +25,7 @@ pub struct SavedGroup {
 #[derive(Debug)]
 pub struct AppState {
     history: VecDeque<String>,
+    used_items: HashSet<String>,
     last_clipboard_text: Option<String>,
     pending_paste_text: Option<String>,
     selected_index: i32,
@@ -39,6 +40,7 @@ impl AppState {
         saved_groups.insert(DEFAULT_GROUP_NAME.to_string(), Vec::new());
         Self {
             history: VecDeque::new(),
+            used_items: HashSet::new(),
             last_clipboard_text: None,
             pending_paste_text: None,
             selected_index: 0,
@@ -55,24 +57,40 @@ impl AppState {
         }
 
         self.last_clipboard_text = Some(text.clone());
-        self.history.retain(|item| item != &text);
+
+        // 既に履歴に存在する場合は位置を変えずスキップする。
+        if self.history.contains(&text) {
+            return false;
+        }
+
         self.history.push_front(text);
 
         while self.history.len() > MAX_CLIPBOARD_ITEMS {
-            self.history.pop_back();
+            if let Some(removed) = self.history.pop_back() {
+                self.used_items.remove(&removed);
+            }
         }
 
         true
     }
 
     /// Slint の List モデルへ変換してUIに渡せる形にする。
-    pub fn history_model(&self) -> ModelRc<SharedString> {
-        let rows: Vec<SharedString> = self
+    pub fn history_model(&self) -> ModelRc<HistoryEntry> {
+        let rows: Vec<HistoryEntry> = self
             .history
             .iter()
             .map(|item| {
                 let normalized = item.replace(['\r', '\n'], " ");
-                SharedString::from(normalized)
+                let display = if normalized.chars().count() > 120 {
+                    let truncated: String = normalized.chars().take(120).collect();
+                    format!("{truncated}…")
+                } else {
+                    normalized
+                };
+                HistoryEntry {
+                    text: SharedString::from(display),
+                    used: self.used_items.contains(item),
+                }
             })
             .collect();
 
@@ -105,6 +123,21 @@ impl AppState {
         self.history = restored;
     }
 
+    /// アイテムを使用済みとしてマークする。
+    pub fn mark_as_used(&mut self, text: &str) {
+        self.used_items.insert(text.to_string());
+    }
+
+    /// 使用済みアイテムのスナップショットを返す（永続化用）。
+    pub fn used_items_snapshot(&self) -> Vec<String> {
+        self.used_items.iter().cloned().collect()
+    }
+
+    /// 永続化データから使用済みアイテムを復元する。
+    pub fn restore_used_items(&mut self, items: Vec<String>) {
+        self.used_items = items.into_iter().collect();
+    }
+
     /// 指定インデックスの履歴文字列を取得する。
     pub fn history_item_at(&self, index: usize) -> Option<String> {
         self.history.get(index).cloned()
@@ -112,11 +145,7 @@ impl AppState {
 
     /// 先頭から指定インデックスまでの履歴アイテムを取得する（0..=index）。
     pub fn history_items_up_to(&self, index: usize) -> Vec<String> {
-        self.history
-            .iter()
-            .take(index + 1)
-            .cloned()
-            .collect()
+        self.history.iter().take(index + 1).cloned().collect()
     }
 
     /// 指定インデックスの履歴アイテムを最新（先頭）へ移動する。
