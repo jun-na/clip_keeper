@@ -1,6 +1,6 @@
 [package]
 name = "ClipKeeper"
-version = "0.9.1"
+version = "0.9.3"
 edition = "2021"
 
 [dependencies]
