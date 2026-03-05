@@ -30,6 +30,7 @@ pub struct AppState {
     pending_paste_text: Option<String>,
     selected_index: i32,
     saved_groups: BTreeMap<String, Vec<SavedItem>>,
+    group_order: Vec<String>,
     active_group: String,
 }
 
@@ -45,6 +46,7 @@ impl AppState {
             pending_paste_text: None,
             selected_index: 0,
             saved_groups,
+            group_order: vec![DEFAULT_GROUP_NAME.to_string()],
             active_group: DEFAULT_GROUP_NAME.to_string(),
         }
     }
@@ -193,23 +195,96 @@ impl AppState {
     /// アクティブなグループを切り替える。
     pub fn set_active_group(&mut self, group: String) {
         // 存在しなければ作成
-        self.saved_groups.entry(group.clone()).or_default();
+        if !self.saved_groups.contains_key(&group) {
+            self.saved_groups.insert(group.clone(), Vec::new());
+            self.group_order.push(group.clone());
+        }
         self.active_group = group;
     }
 
-    /// グループ名の一覧を返す（ソート済み）。
+    /// グループ名の一覧を返す（追加順）。
     pub fn group_names(&self) -> Vec<String> {
-        self.saved_groups.keys().cloned().collect()
+        self.group_order.clone()
     }
 
     /// 新しいグループを追加する。既に存在する場合は何もしない。
-    pub fn add_group(&mut self, name: String) {
-        self.saved_groups.entry(name).or_default();
+    pub fn add_group(&mut self, name: String) -> bool {
+        let normalized = name.trim();
+        if normalized.is_empty() || self.saved_groups.contains_key(normalized) {
+            return false;
+        }
+        self.saved_groups.insert(normalized.to_string(), Vec::new());
+        self.group_order.push(normalized.to_string());
+        true
+    }
+
+    /// 指定インデックスのグループ名を変更する。
+    pub fn rename_group(&mut self, index: usize, new_name: String) -> bool {
+        let normalized = new_name.trim();
+        if normalized.is_empty() {
+            return false;
+        }
+
+        let Some(old_name) = self.group_order.get(index).cloned() else {
+            return false;
+        };
+        if old_name == DEFAULT_GROUP_NAME {
+            return false;
+        }
+        if old_name != normalized && self.saved_groups.contains_key(normalized) {
+            return false;
+        }
+        if old_name == normalized {
+            return true;
+        }
+
+        let Some(items) = self.saved_groups.remove(&old_name) else {
+            return false;
+        };
+        self.saved_groups.insert(normalized.to_string(), items);
+        if let Some(slot) = self.group_order.get_mut(index) {
+            *slot = normalized.to_string();
+        }
+        if self.active_group == old_name {
+            self.active_group = normalized.to_string();
+        }
+        true
+    }
+
+    /// 指定インデックスのグループを削除し、アイテムはデフォルトへ移動する。
+    pub fn delete_group(&mut self, index: usize) -> bool {
+        let Some(target_name) = self.group_order.get(index).cloned() else {
+            return false;
+        };
+        if target_name == DEFAULT_GROUP_NAME {
+            return false;
+        }
+
+        let Some(removed_items) = self.saved_groups.remove(&target_name) else {
+            return false;
+        };
+        self.group_order.retain(|name| name != &target_name);
+        self.saved_groups
+            .entry(DEFAULT_GROUP_NAME.to_string())
+            .or_default()
+            .extend(removed_items);
+
+        if self.active_group == target_name {
+            self.active_group = DEFAULT_GROUP_NAME.to_string();
+        }
+        true
     }
 
     /// アクティブグループにアイテムを追加する。
     pub fn add_saved_item(&mut self, group: &str, title: String, content: String) {
-        let items = self.saved_groups.entry(group.to_string()).or_default();
+        if !self.saved_groups.contains_key(group) {
+            self.saved_groups.insert(group.to_string(), Vec::new());
+            self.group_order.push(group.to_string());
+        }
+        let items = self
+            .saved_groups
+            .get_mut(group)
+            .expect("group should exist after initialization");
         items.push(SavedItem { title, content });
     }
 
@@ -226,11 +301,13 @@ impl AppState {
 
     /// 全グループのスナップショットを返す（永続化用）。
     pub fn saved_groups_snapshot(&self) -> Vec<SavedGroup> {
-        self.saved_groups
+        self.group_order
             .iter()
-            .map(|(name, items)| SavedGroup {
-                name: name.clone(),
-                items: items.clone(),
+            .filter_map(|name| {
+                self.saved_groups.get(name).map(|items| SavedGroup {
+                    name: name.clone(),
+                    items: items.clone(),
+                })
             })
             .collect()
     }
@@ -238,13 +315,22 @@ impl AppState {
     /// 永続化データからグループを復元する。
     pub fn restore_saved_groups(&mut self, groups: Vec<SavedGroup>, active_group: Option<String>) {
         self.saved_groups.clear();
+        self.group_order.clear();
         for group in groups {
+            if self.saved_groups.contains_key(&group.name) {
+                continue;
+            }
+            self.group_order.push(group.name.clone());
             self.saved_groups.insert(group.name, group.items);
         }
         // デフォルトグループが必ず存在するようにする
-        self.saved_groups
-            .entry(DEFAULT_GROUP_NAME.to_string())
-            .or_default();
+        if !self.saved_groups.contains_key(DEFAULT_GROUP_NAME) {
+            self.saved_groups
+                .insert(DEFAULT_GROUP_NAME.to_string(), Vec::new());
+        }
+        if !self.group_order.iter().any(|name| name == DEFAULT_GROUP_NAME) {
+            self.group_order.push(DEFAULT_GROUP_NAME.to_string());
+        }
         // active_group の復元
         if let Some(ag) = active_group {
             if self.saved_groups.contains_key(&ag) {
@@ -275,8 +361,8 @@ impl AppState {
     /// グループ名リストを Slint モデルへ変換する。
     pub fn group_names_model(&self) -> ModelRc<SharedString> {
         let names: Vec<SharedString> = self
-            .saved_groups
-            .keys()
+            .group_order
+            .iter()
             .map(|k| SharedString::from(k.as_str()))
             .collect();
         ModelRc::new(VecModel::from(names))
@@ -284,8 +370,8 @@ impl AppState {
 
     /// アクティブグループのグループ名リスト中のインデックスを返す。
     pub fn active_group_index(&self) -> i32 {
-        self.saved_groups
-            .keys()
+        self.group_order
+            .iter()
             .position(|k| k == &self.active_group)
             .map(|i| i as i32)
             .unwrap_or(0)

@@ -36,6 +36,9 @@ export component HistoryWindow inherits Window {
     callback request-delete-saved-item(int);
     callback request-edit-saved-item(int);
     callback request-switch-group(int);
+    callback request-open-create-group-dialog();
+    callback request-open-rename-group-dialog(int);
+    callback request-open-delete-group-dialog(int);
 
     // 右クリックメニュー用の状態
     property <int> ctx-target-index: -1;
@@ -51,9 +54,15 @@ export component HistoryWindow inherits Window {
     property <length> saved-row-height: 52px;
 
     forward-focus: key-handler;
+    changed active-tab => {
+        key-handler.focus();
+    }
 
     key-handler := FocusScope {
         key-pressed(event) => {
+            if event.text == Key.Tab {
+                return accept;
+            }
             // ── コンテキストメニューが開いているときの操作 ──
             if root.ctx-visible {
                 if event.text == Key.UpArrow || event.text == "k" {
@@ -289,7 +298,7 @@ export component HistoryWindow inherits Window {
                         padding-right: 8px;
                         padding-top: 6px;
                         padding-bottom: 4px;
-                        height: 34px;
+                        height: 36px;
 
                         Text {
                             text: "グループ:";
@@ -303,7 +312,41 @@ export component HistoryWindow inherits Window {
                             model: root.group-names;
                             current-index <=> root.active-group-index;
                             selected(value) => {
-                                root.request-switch-group(root.active-group-index);
+                                root.request-switch-group(self.current-index);
+                            }
+                        }
+
+                        Button {
+                            text: "+";
+                            min-width: 28px;
+                            clicked => {
+                                root.request-open-create-group-dialog();
+                            }
+                        }
+
+                        Button {
+                            text: "名前変更";
+                            enabled: root.group-names.length > 0
+                                     && root.active-group-index >= 0
+                                     && root.active-group-index < root.group-names.length
+                                     && root.group-names[root.active-group-index] != "デフォルト";
+                            clicked => {
+                                if root.group-names.length > 0 {
+                                    root.request-open-rename-group-dialog(root.active-group-index);
+                                }
+                            }
+                        }
+
+                        Button {
+                            text: "削除";
+                            enabled: root.group-names.length > 0
+                                     && root.active-group-index >= 0
+                                     && root.active-group-index < root.group-names.length
+                                     && root.group-names[root.active-group-index] != "デフォルト";
+                            clicked => {
+                                if root.group-names.length > 0 {
+                                    root.request-open-delete-group-dialog(root.active-group-index);
+                                }
                             }
                         }
                     }
@@ -768,6 +811,98 @@ export component HistoryWindow inherits Window {
                         font-size: 13px;
                         vertical-alignment: center;
                     }
+                }
+            }
+        }
+    }
+
+}
+
+export component GroupNameDialogWindow inherits Window {
+    title: "グループ";
+    width: 360px;
+    height: 170px;
+
+    in-out property <string> group-name: "";
+    in property <int> dialog-mode: 0; // 0: 作成, 1: 改名
+
+    callback request-confirm(string);
+    callback request-cancel();
+
+    VerticalBox {
+        spacing: 8px;
+        padding: 12px;
+
+        Text {
+            text: root.dialog-mode == 0 ? "グループを追加" : "グループ名を変更";
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        LineEdit {
+            text <=> root.group-name;
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+
+            Button {
+                text: "キャンセル";
+                clicked => {
+                    root.request-cancel();
+                }
+            }
+
+            Button {
+                text: "OK";
+                clicked => {
+                    root.request-confirm(root.group-name);
+                }
+            }
+        }
+    }
+}
+
+export component GroupDeleteDialogWindow inherits Window {
+    title: "グループ削除";
+    width: 380px;
+    height: 180px;
+
+    in property <string> target-group-name: "";
+    callback request-confirm-delete();
+    callback request-cancel-delete();
+
+    VerticalBox {
+        spacing: 8px;
+        padding: 12px;
+
+        Text {
+            text: "このグループを削除しますか？";
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        Text {
+            text: "対象: \{root.target-group-name}\nアイテムはデフォルトへ移動されます。";
+            wrap: word-wrap;
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+
+            Button {
+                text: "キャンセル";
+                clicked => {
+                    root.request-cancel-delete();
+                }
+            }
+
+            Button {
+                text: "削除";
+                clicked => {
+                    root.request-confirm-delete();
                 }
             }
         }

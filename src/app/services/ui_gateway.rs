@@ -16,6 +16,10 @@ pub struct UiGateway {
     settings_window: Mutex<Option<Weak<crate::SettingsWindow>>>,
     save_dialog_window: Mutex<Option<Weak<crate::SaveDialogWindow>>>,
     edit_saved_dialog_window: Mutex<Option<Weak<crate::EditSavedDialogWindow>>>,
+    group_name_dialog_window: Mutex<Option<Weak<crate::GroupNameDialogWindow>>>,
+    group_delete_dialog_window: Mutex<Option<Weak<crate::GroupDeleteDialogWindow>>>,
+    group_rename_target_index: Arc<Mutex<i32>>,
+    group_delete_target_index: Arc<Mutex<i32>>,
 }
 
 impl UiGateway {
@@ -31,6 +35,10 @@ impl UiGateway {
             settings_window: Mutex::new(None),
             save_dialog_window: Mutex::new(None),
             edit_saved_dialog_window: Mutex::new(None),
+            group_name_dialog_window: Mutex::new(None),
+            group_delete_dialog_window: Mutex::new(None),
+            group_rename_target_index: Arc::new(Mutex::new(-1)),
+            group_delete_target_index: Arc::new(Mutex::new(-1)),
         }
     }
 
@@ -40,6 +48,8 @@ impl UiGateway {
         settings_window: &crate::SettingsWindow,
         save_dialog_window: &crate::SaveDialogWindow,
         edit_saved_dialog_window: &crate::EditSavedDialogWindow,
+        group_name_dialog_window: &crate::GroupNameDialogWindow,
+        group_delete_dialog_window: &crate::GroupDeleteDialogWindow,
     ) {
         {
             let mut history = self
@@ -69,6 +79,20 @@ impl UiGateway {
                 .expect("edit saved dialog lock poisoned");
             *edit_saved_dialog = Some(edit_saved_dialog_window.as_weak());
         }
+        {
+            let mut group_name_dialog = self
+                .group_name_dialog_window
+                .lock()
+                .expect("group name dialog lock poisoned");
+            *group_name_dialog = Some(group_name_dialog_window.as_weak());
+        }
+        {
+            let mut group_delete_dialog = self
+                .group_delete_dialog_window
+                .lock()
+                .expect("group delete dialog lock poisoned");
+            *group_delete_dialog = Some(group_delete_dialog_window.as_weak());
+        }
 
         self.wire_callbacks();
     }
@@ -94,6 +118,16 @@ impl UiGateway {
             .edit_saved_dialog_window
             .lock()
             .expect("edit saved dialog lock poisoned")
+            .clone();
+        let group_name_dialog_weak = self
+            .group_name_dialog_window
+            .lock()
+            .expect("group name dialog lock poisoned")
+            .clone();
+        let group_delete_dialog_weak = self
+            .group_delete_dialog_window
+            .lock()
+            .expect("group delete dialog lock poisoned")
             .clone();
 
         if let Some(history_weak) = history_weak {
@@ -243,8 +277,75 @@ impl UiGateway {
                         if let Some(name) = group_names.get(group_index as usize) {
                             clipboard_service.set_active_group(name.clone());
                             if let Some(window) = history_weak.upgrade() {
+                                window.set_group_names(clipboard_service.group_names_model());
+                                window.set_active_group_index(clipboard_service.active_group_index());
                                 window.set_saved_items(clipboard_service.saved_items_model());
                                 window.set_saved_selected_index(0);
+                            }
+                        }
+                    }
+                });
+
+                // グループ追加ダイアログを開く
+                history_window.on_request_open_create_group_dialog({
+                    let group_name_dialog_weak = group_name_dialog_weak.clone();
+                    move || {
+                        if let Some(dialog) = group_name_dialog_weak.as_ref().and_then(|w| w.upgrade()) {
+                            dialog.set_dialog_mode(0);
+                            dialog.set_group_name(SharedString::default());
+                            let _ = dialog.show();
+                            set_app_icon(dialog.window());
+                            bring_to_front(dialog.window());
+                        }
+                    }
+                });
+
+                // グループ改名ダイアログを開く
+                history_window.on_request_open_rename_group_dialog({
+                    let clipboard_service = self.clipboard_service.clone();
+                    let group_name_dialog_weak = group_name_dialog_weak.clone();
+                    let rename_index_store = self.group_rename_target_index.clone();
+                    move |index| {
+                        let group_names = clipboard_service.group_names();
+                        if let Some(name) = group_names.get(index as usize) {
+                            if name == "デフォルト" {
+                                return;
+                            }
+                            if let Ok(mut target) = rename_index_store.lock() {
+                                *target = index;
+                            }
+                            if let Some(dialog) = group_name_dialog_weak.as_ref().and_then(|w| w.upgrade()) {
+                                dialog.set_dialog_mode(1);
+                                dialog.set_group_name(SharedString::from(name.as_str()));
+                                let _ = dialog.show();
+                                set_app_icon(dialog.window());
+                                bring_to_front(dialog.window());
+                            }
+                        }
+                    }
+                });
+
+                // グループ削除ダイアログを開く
+                history_window.on_request_open_delete_group_dialog({
+                    let clipboard_service = self.clipboard_service.clone();
+                    let group_delete_dialog_weak = group_delete_dialog_weak.clone();
+                    let delete_index_store = self.group_delete_target_index.clone();
+                    move |index| {
+                        let group_names = clipboard_service.group_names();
+                        if let Some(name) = group_names.get(index as usize) {
+                            if name == "デフォルト" {
+                                return;
+                            }
+                            if let Ok(mut target) = delete_index_store.lock() {
+                                *target = index;
+                            }
+                            if let Some(dialog) =
+                                group_delete_dialog_weak.as_ref().and_then(|w| w.upgrade())
+                            {
+                                dialog.set_target_group_name(SharedString::from(name.as_str()));
+                                let _ = dialog.show();
+                                set_app_icon(dialog.window());
+                                bring_to_front(dialog.window());
                             }
                         }
                     }
@@ -419,6 +520,136 @@ impl UiGateway {
                     let edit_saved_dialog_weak = edit_saved_dialog_weak.clone();
                     move || {
                         if let Some(dialog) = edit_saved_dialog_weak.upgrade() {
+                            let _ = dialog.hide();
+                        }
+                        CloseRequestResponse::KeepWindowShown
+                    }
+                });
+            }
+        }
+
+        // グループ名ダイアログのコールバック
+        if let Some(group_name_dialog_weak) = group_name_dialog_weak {
+            if let Some(dialog) = group_name_dialog_weak.upgrade() {
+                dialog.on_request_confirm({
+                    let clipboard_service = self.clipboard_service.clone();
+                    let group_name_dialog_weak = group_name_dialog_weak.clone();
+                    let history_weak = self
+                        .history_window
+                        .lock()
+                        .expect("history window lock poisoned")
+                        .clone();
+                    let rename_index_store = self.group_rename_target_index.clone();
+                    move |name| {
+                        let normalized = name.trim().to_string();
+                        if normalized.is_empty() {
+                            if let Some(dialog) = group_name_dialog_weak.upgrade() {
+                                let _ = dialog.hide();
+                            }
+                            return;
+                        }
+
+                        let mode = group_name_dialog_weak
+                            .upgrade()
+                            .map(|d| d.get_dialog_mode())
+                            .unwrap_or(0);
+                        let changed = if mode == 0 {
+                            if clipboard_service.add_group(normalized.clone()) {
+                                clipboard_service.set_active_group(normalized);
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            let index = rename_index_store.lock().map(|v| *v).unwrap_or(-1);
+                            clipboard_service.rename_group(index, normalized)
+                        };
+
+                        if changed {
+                            if let Some(history_weak) = &history_weak {
+                                if let Some(window) = history_weak.upgrade() {
+                                    window.set_group_names(clipboard_service.group_names_model());
+                                    window.set_active_group_index(
+                                        clipboard_service.active_group_index(),
+                                    );
+                                    window.set_saved_items(clipboard_service.saved_items_model());
+                                    window.set_saved_selected_index(0);
+                                }
+                            }
+                        }
+
+                        if let Some(dialog) = group_name_dialog_weak.upgrade() {
+                            let _ = dialog.hide();
+                        }
+                    }
+                });
+
+                dialog.on_request_cancel({
+                    let group_name_dialog_weak = group_name_dialog_weak.clone();
+                    move || {
+                        if let Some(dialog) = group_name_dialog_weak.upgrade() {
+                            let _ = dialog.hide();
+                        }
+                    }
+                });
+
+                dialog.window().on_close_requested({
+                    let group_name_dialog_weak = group_name_dialog_weak.clone();
+                    move || {
+                        if let Some(dialog) = group_name_dialog_weak.upgrade() {
+                            let _ = dialog.hide();
+                        }
+                        CloseRequestResponse::KeepWindowShown
+                    }
+                });
+            }
+        }
+
+        // グループ削除ダイアログのコールバック
+        if let Some(group_delete_dialog_weak) = group_delete_dialog_weak {
+            if let Some(dialog) = group_delete_dialog_weak.upgrade() {
+                dialog.on_request_confirm_delete({
+                    let clipboard_service = self.clipboard_service.clone();
+                    let group_delete_dialog_weak = group_delete_dialog_weak.clone();
+                    let history_weak = self
+                        .history_window
+                        .lock()
+                        .expect("history window lock poisoned")
+                        .clone();
+                    let delete_index_store = self.group_delete_target_index.clone();
+                    move || {
+                        let index = delete_index_store.lock().map(|v| *v).unwrap_or(-1);
+                        if clipboard_service.delete_group(index) {
+                            if let Some(history_weak) = &history_weak {
+                                if let Some(window) = history_weak.upgrade() {
+                                    window.set_group_names(clipboard_service.group_names_model());
+                                    window.set_active_group_index(
+                                        clipboard_service.active_group_index(),
+                                    );
+                                    window.set_saved_items(clipboard_service.saved_items_model());
+                                    window.set_saved_selected_index(0);
+                                }
+                            }
+                        }
+                        if let Some(dialog) = group_delete_dialog_weak.upgrade() {
+                            let _ = dialog.hide();
+                        }
+                    }
+                });
+
+                dialog.on_request_cancel_delete({
+                    let group_delete_dialog_weak = group_delete_dialog_weak.clone();
+                    move || {
+                        if let Some(dialog) = group_delete_dialog_weak.upgrade() {
+                            let _ = dialog.hide();
+                        }
+                    }
+                });
+
+                dialog.window().on_close_requested({
+                    let group_delete_dialog_weak = group_delete_dialog_weak.clone();
+                    move || {
+                        if let Some(dialog) = group_delete_dialog_weak.upgrade() {
                             let _ = dialog.hide();
                         }
                         CloseRequestResponse::KeepWindowShown

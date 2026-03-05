@@ -44,6 +44,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let edit_saved_dialog_window = EditSavedDialogWindow::new()?;
     edit_saved_dialog_window.hide()?;
 
+    let group_name_dialog_window = GroupNameDialogWindow::new()?;
+    group_name_dialog_window.hide()?;
+
+    let group_delete_dialog_window = GroupDeleteDialogWindow::new()?;
+    group_delete_dialog_window.hide()?;
+
     // 実行系サービス（トレイ/監視）を起動。
     let service_runtime = app::contexts::service_runtime::ServiceRuntime::new(
         app.service_context(),
@@ -51,6 +57,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         &settings_window,
         &save_dialog_window,
         &edit_saved_dialog_window,
+        &group_name_dialog_window,
+        &group_delete_dialog_window,
     )?;
     service_runtime.start_background_services();
 

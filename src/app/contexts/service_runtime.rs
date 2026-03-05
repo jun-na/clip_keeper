@@ -17,9 +17,18 @@ impl ServiceRuntime {
         settings_window: &crate::SettingsWindow,
         save_dialog_window: &crate::SaveDialogWindow,
         edit_saved_dialog_window: &crate::EditSavedDialogWindow,
+        group_name_dialog_window: &crate::GroupNameDialogWindow,
+        group_delete_dialog_window: &crate::GroupDeleteDialogWindow,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let ui_gateway = service_context.ui_gateway();
-        ui_gateway.attach_windows(history_window, settings_window, save_dialog_window, edit_saved_dialog_window);
+        ui_gateway.attach_windows(
+            history_window,
+            settings_window,
+            save_dialog_window,
+            edit_saved_dialog_window,
+            group_name_dialog_window,
+            group_delete_dialog_window,
+        );
 
         // TrayRuntime は UiGateway を使ってメニュー操作をUIへ橋渡しする。
         let tray_runtime = TrayRuntime::new(ui_gateway.clone())?;
