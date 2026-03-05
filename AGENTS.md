@@ -1,95 +1,53 @@
-# ClipboardTool (clip_keeper) - 機能とファイル関連マップ
+# AI指示ガイドライン - 依存注入とコンテキスト設計パターン
 
-## 機能と関連ファイル
+## AIへの指示テンプレート
 
-### クリップボード履歴管理
-- `src/app/services/clipboard_service.rs` - 履歴の追加・取得・永続化
-- `src/app/states/app_state.rs` - 履歴状態（VecDeque、最大50件）
-- `src/app/services/monitor_runtime.rs` - 120ms ポーリング監視
-- `ui/app-window.slint` - 履歴表示UI
+新しいプロジェクトでこのパターンを使う場合、AIに以下を指示してください：
 
-### ホットキー検出
-- `src/app/services/monitor_runtime.rs` - グローバルキー監視
-- `src/app/services/detectors.rs` - ダブルタップ検出（450ms 判定）
-- `src/app/services/settings_service.rs` - 設定読み書き
-- `src/app/states/settings_state.rs` - 設定状態
-
-### UI表示・操作
-- `ui/app-window.slint` - HistoryWindow / SettingsWindow
-- `src/app/services/ui_gateway.rs` - Rust ↔ Slint 双方向通信
-- `src/main.rs` - Window 生成・ライフサイクル
-
-### タスクトレイ
-- `src/app/services/tray_runtime.rs` - メニュー・アイコン生成
-- `src/app/services/ui_gateway.rs` - メニュー → UI 橋渡し
-
-### 依存関係・初期化
-- `src/app/contexts/composition_root.rs` - DI コンテナ（Context 群の組み立て）
-- `src/app/contexts/app_context.rs` - StateContext と ServiceContext を束ねる統合コンテキスト
-- `src/app/contexts/service_context.rs` - Service インスタンス定義
-- `src/app/contexts/state_context.rs` - State 中央管理
-- `src/app/contexts/service_runtime.rs` - 実行系サービス（TrayRuntime/MonitorRuntime）管理
-- `src/main.rs` - 起動シーケンス
-
----
-
-## ファイル役割早見表
-
-| ファイル | 責務 |
-|---------|------|
-| `main.rs` | エントリーポイント・起動シーケンス |
-| `app/mod.rs` | app 層モジュール公開 |
-| `clipboard_service.rs` | 履歴 CRUD・永続化 |
-| `settings_service.rs` | 設定 CRUD・永続化 |
-| `ui_gateway.rs` | Rust ↔ Slint 双方向通信 |
-| `monitor_runtime.rs` | 監視ループ（クリップボード・ホットキー） |
-| `tray_runtime.rs` | タスクトレイ・メニュー管理 |
-| `detectors.rs` | ダブルタップ検出ロジック |
-| `app_state.rs` | 履歴状態（VecDeque） |
-| `settings_state.rs` | 設定状態 |
-| `app-window.slint` | UI 定義（HistoryWindow / SettingsWindow） |
-| `composition_root.rs` | DI コンテナ（Context 群の組み立て） |
-| `app_context.rs` | StateContext と ServiceContext 統合 |
-| `service_context.rs` | Service インスタンス定義 |
-| `service_runtime.rs` | 実行系サービス（TrayRuntime/MonitorRuntime）管理 |
-| `state_context.rs` | State 中央管理 |
-
----
+> このプロジェクトでは、以下の設計パターンを採用しています：
+>
+> 1. **AppContext**: StateContextとServiceContextを統合するコンテナ
+> 2. **StateContext**: すべてのアプリケーション状態を中央管理（`Arc<Mutex<T>>`でラップ）
+> 3. **ServiceContext**: ビジネスロジックを実装するサービスを管理
+> 4. **Composition Root**: DIコンテナとして、すべてのコンテキストとサービスを組み立てる
+> 5. **依存注入**: 各Serviceはコンストラクタを通じて必要な依存（StateやService）を受け取る
+>
+> 新しいServiceやStateを追加する際は、このパターンに従い、Composition Rootで依存を解決してください。
 
 ## 初期化順序
 
-``    ↓ StateContext::new()
-      ↓ ServiceContext::new(state_context)
-      ↓ AppContext::new()
-  ↓ load_history_from_disk()
-  ↓ load_from_disk() (settings)
-  ↓ HistoryWindow・SettingsWindow 生成
-  ↓ ServiceRuntime::new(service_context, windows)
-      ↓ attach_windows()
-      ↓ TrayRuntime::new()
-      ↓ MonitorRuntime::new()
-  ↓ service_runtime.start_background_services()
-      ↓ monitor_runtime. (settings)
-  ↓ Window 生成
-  ↓ ServiceRuntime::new()
-  ↓ MonitorRuntime::start()
-  ↓ slint::run_event_loop_until_quit()
+1. StateContext を生成（すべての状態を先に用意）
+2. 依存関係のないServiceから順に生成（下流から上流へ）
+3. ServiceContext に集約（すべてのServiceをまとめる）
+4. AppContext で統合（StateContextとServiceContextを束ねる）
+
+## 実装例
+
+```rust
+// コンストラクタインジェクション
+pub struct MyService {
+    state_context: Arc<StateContext>,
+    other_service: Arc<OtherService>,
+}
+
+impl MyService {
+    pub fn new(state_context: Arc<StateContext>, other_service: Arc<OtherService>) -> Self {
+        Self { state_context, other_service }
+    }
+}
+
+// Composition Root
+pub fn create_app_context() -> Arc<AppContext> {
+    let state_context = Arc::new(StateContext::new());
+    let service_a = Arc::new(ServiceA::new(state_context.clone()));
+    let service_b = Arc::new(ServiceB::new(state_context.clone(), service_a.clone()));
+    let service_context = Arc::new(ServiceContext { service_a, service_b });
+    Arc::new(AppContext { state_context, service_context })
+}
 ```
 
----
+## 設計の契約
 
-## マルチスレッド構成
-
-- **Main Thread**: Slint UI イベント
-- **Clipboard Thread**: 120ms ポーリング
-- **Hotkey Thread**: グローバルキー監視
-- **Tray Menu Thread**: タスクトレイメニュー監視
-
-すべて `Arc<Mutex<>>` で同期保護
-
----
-
-## 永続化ファイル
-
-- `%LOCALAPPDATA%/clip_keeper/clipboard_history.json` - 履歴
-- `%LOCALAPPDATA%/clip_keeper/settings.json` - 設定
+- 状態はStateContext経由でのみアクセス
+- サービス間の依存はServiceContext経由で解決
+- UI層はAppContextのみに依存

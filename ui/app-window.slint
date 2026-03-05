@@ -218,30 +218,40 @@ export component HistoryWindow inherits Window {
                             clip: true;
                             border-radius: 4px;
                             background: hist-touch.pressed ? #b3cfff
-                                      : index == root.selected-index ? (item.used ? #f0cfe1 : #cfe1ff)
-                                      : hist-touch.has-hover ? (item.used ? #f5dde8 : #e0e0e0)
-                                      : item.used ? #fce8ef
+                                      : index == root.selected-index ? #cfe1ff
+                                      : hist-touch.has-hover ? #e0e0e0
                                       : #f4f4f4;
 
                             HorizontalLayout {
                                 padding-left: 4px;
                                 padding-right: 8px;
                                 padding-top: 4px;
-                                spacing: 2px;
+                                spacing: 6px;
 
-                                Text {
+                                Rectangle {
                                     width: 18px;
-                                    text: item.used ? "✓" : "";
-                                    color: #d32f2f;
-                                    font-size: 13px;
-                                    font-weight: 700;
-                                    vertical-alignment: top;
-                                    horizontal-alignment: center;
+                                    height: 18px;
+                                    border-width: 1px;
+                                    border-color: item.used ? #2f6feb : #9aa4b2;
+                                    border-radius: 4px;
+                                    background: item.used ? #2f6feb : #ffffff;
+
+                                    Path {
+                                        x: 3px;
+                                        y: 4px;
+                                        width: 12px;
+                                        height: 9px;
+                                        visible: item.used;
+                                        commands: "M 1 4 L 4 7 L 11 1";
+                                        stroke: #ffffff;
+                                        stroke-width: 2px;
+                                        fill: #00000000;
+                                    }
                                 }
 
                                 Text {
                                     horizontal-stretch: 1;
-                                    text: "\{index + 1}. \{item.text}";
+                                    text: item.text;
                                     color: #111111;
                                     wrap: word-wrap;
                                     overflow: clip;
@@ -431,9 +441,28 @@ export component HistoryWindow inherits Window {
                         }
                     }
 
-                    Text {
-                        text: "📌 保存";
+                    Rectangle {
                         x: 10px;
+                        y: 9px;
+                        width: 14px;
+                        height: 14px;
+                        background: #00000000;
+
+                        Path {
+                            x: 1px;
+                            y: 1px;
+                            width: 12px;
+                            height: 12px;
+                            commands: "M 2 1 L 10 1 L 10 11 L 6 8 L 2 11 Z";
+                            stroke: #111111;
+                            stroke-width: 1px;
+                            fill: #00000000;
+                        }
+                    }
+
+                    Text {
+                        text: "保存";
+                        x: 30px;
                         color: #111111;
                         font-size: 13px;
                         vertical-alignment: center;
@@ -456,9 +485,28 @@ export component HistoryWindow inherits Window {
                         }
                     }
 
-                    Text {
-                        text: "⏫ 最新に移動";
+                    Rectangle {
                         x: 10px;
+                        y: 9px;
+                        width: 14px;
+                        height: 14px;
+                        background: #00000000;
+
+                        Path {
+                            x: 1px;
+                            y: 1px;
+                            width: 12px;
+                            height: 12px;
+                            commands: "M 6 1 L 11 7 L 8 7 L 8 11 L 4 11 L 4 7 L 1 7 Z";
+                            stroke: #111111;
+                            stroke-width: 1px;
+                            fill: #111111;
+                        }
+                    }
+
+                    Text {
+                        text: "最新に移動";
+                        x: 30px;
                         color: #111111;
                         font-size: 13px;
                         vertical-alignment: center;
@@ -486,9 +534,28 @@ export component HistoryWindow inherits Window {
                         }
                     }
 
-                    Text {
-                        text: "📋 この行以上を一括貼付(連結)";
+                    Rectangle {
                         x: 10px;
+                        y: 9px;
+                        width: 14px;
+                        height: 14px;
+                        background: #00000000;
+
+                        Path {
+                            x: 1px;
+                            y: 1px;
+                            width: 12px;
+                            height: 12px;
+                            commands: "M 3 2 L 9 2 L 9 11 L 3 11 Z M 4 1 L 8 1 L 8 3 L 4 3 Z";
+                            stroke: #111111;
+                            stroke-width: 1px;
+                            fill: #00000000;
+                        }
+                    }
+
+                    Text {
+                        text: "この行以上を一括貼付(連結)";
+                        x: 30px;
                         color: #111111;
                         font-size: 13px;
                         vertical-alignment: center;
@@ -511,9 +578,28 @@ export component HistoryWindow inherits Window {
                         }
                     }
 
-                    Text {
-                        text: "📋 この行以上を一括貼付(Tab)";
+                    Rectangle {
                         x: 10px;
+                        y: 9px;
+                        width: 14px;
+                        height: 14px;
+                        background: #00000000;
+
+                        Path {
+                            x: 1px;
+                            y: 1px;
+                            width: 12px;
+                            height: 12px;
+                            commands: "M 3 2 L 9 2 L 9 11 L 3 11 Z M 4 1 L 8 1 L 8 3 L 4 3 Z";
+                            stroke: #111111;
+                            stroke-width: 1px;
+                            fill: #00000000;
+                        }
+                    }
+
+                    Text {
+                        text: "この行以上を一括貼付(Tab)";
+                        x: 30px;
                         color: #111111;
                         font-size: 13px;
                         vertical-alignment: center;
@@ -536,9 +622,28 @@ export component HistoryWindow inherits Window {
                         }
                     }
 
-                    Text {
-                        text: "📋 この行以上を一括貼付(改行)";
+                    Rectangle {
                         x: 10px;
+                        y: 9px;
+                        width: 14px;
+                        height: 14px;
+                        background: #00000000;
+
+                        Path {
+                            x: 1px;
+                            y: 1px;
+                            width: 12px;
+                            height: 12px;
+                            commands: "M 3 2 L 9 2 L 9 11 L 3 11 Z M 4 1 L 8 1 L 8 3 L 4 3 Z";
+                            stroke: #111111;
+                            stroke-width: 1px;
+                            fill: #00000000;
+                        }
+                    }
+
+                    Text {
+                        text: "この行以上を一括貼付(改行)";
+                        x: 30px;
                         color: #111111;
                         font-size: 13px;
                         vertical-alignment: center;
@@ -593,9 +698,28 @@ export component HistoryWindow inherits Window {
                         }
                     }
 
-                    Text {
-                        text: "✏️ 編集";
+                    Rectangle {
                         x: 10px;
+                        y: 9px;
+                        width: 14px;
+                        height: 14px;
+                        background: #00000000;
+
+                        Path {
+                            x: 1px;
+                            y: 2px;
+                            width: 12px;
+                            height: 10px;
+                            commands: "M 1 9 L 3 11 L 11 3 L 9 1 Z M 1 9 L 1 11 L 3 11";
+                            stroke: #111111;
+                            stroke-width: 1px;
+                            fill: #00000000;
+                        }
+                    }
+
+                    Text {
+                        text: "編集";
+                        x: 30px;
                         color: #111111;
                         font-size: 13px;
                         vertical-alignment: center;
@@ -618,9 +742,28 @@ export component HistoryWindow inherits Window {
                         }
                     }
 
-                    Text {
-                        text: "✕ 削除";
+                    Rectangle {
                         x: 10px;
+                        y: 9px;
+                        width: 14px;
+                        height: 14px;
+                        background: #00000000;
+
+                        Path {
+                            x: 2px;
+                            y: 2px;
+                            width: 10px;
+                            height: 10px;
+                            commands: "M 1 1 L 9 9 M 9 1 L 1 9";
+                            stroke: #cc3333;
+                            stroke-width: 1.6px;
+                            fill: #00000000;
+                        }
+                    }
+
+                    Text {
+                        text: "削除";
+                        x: 30px;
                         color: #cc3333;
                         font-size: 13px;
                         vertical-alignment: center;
