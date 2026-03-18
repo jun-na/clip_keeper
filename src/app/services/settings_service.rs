@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::{env, fs, io, path::PathBuf};
+use std::{fs, io, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -177,12 +177,5 @@ fn normalize_combo_key(input: &str) -> String {
 }
 
 fn settings_file_path() -> io::Result<PathBuf> {
-    let exe_path = env::current_exe()?;
-    let exe_dir = exe_path.parent().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::NotFound,
-            "failed to resolve executable directory",
-        )
-    })?;
-    Ok(exe_dir.join("settings.json"))
+    crate::app::storage_paths::data_file_path("settings.json")
 }

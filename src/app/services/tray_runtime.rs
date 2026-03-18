@@ -45,6 +45,15 @@ impl TrayRuntime {
 
         let icon = Icon::from_rgba(rgba, 32, 32)?;
 
+        #[cfg(target_os = "macos")]
+        let tray_icon = TrayIconBuilder::new()
+            .with_tooltip("クリップキーパー")
+            .with_icon(icon)
+            .with_icon_as_template(true)
+            .with_menu(Box::new(menu.clone()))
+            .build()?;
+
+        #[cfg(not(target_os = "macos"))]
         let tray_icon = TrayIconBuilder::new()
             .with_tooltip("クリップキーパー")
             .with_icon(icon)

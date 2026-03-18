@@ -2,6 +2,8 @@
 // エントリーポイント。
 // 依存解決・Window生成・サービス起動・UIイベントループ開始までを担当する。
 
+#[cfg(target_os = "macos")]
+use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicyAccessory};
 use slint::ComponentHandle;
 use std::error::Error;
 
@@ -15,6 +17,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     slint::BackendSelector::new()
         .backend_name("winit".into())
         .select()?;
+
+    #[cfg(target_os = "macos")]
+    configure_macos_activation_policy();
 
     // 依存関係（状態/サービス定義）を組み立てる。
     let app = app::contexts::composition_root::CompositionRoot::build()?;
@@ -65,4 +70,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     // トレイ常駐アプリのため、全ウィンドウ非表示でも終了しないイベントループを使う。
     slint::run_event_loop_until_quit()?;
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn configure_macos_activation_policy() {
+    unsafe {
+        let app = NSApp();
+        let _ = app.setActivationPolicy_(NSApplicationActivationPolicyAccessory);
+    }
 }

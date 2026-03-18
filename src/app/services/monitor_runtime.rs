@@ -3,11 +3,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use arboard::Clipboard;
-use rdev::{Event, EventType, Key};
+use rdev::{EventType, Key};
 
 use crate::app::services::clipboard_service::ClipboardService;
 use crate::app::services::detectors::DoubleTapDetector;
 use crate::app::services::hotkey_logger::HotkeyLogger;
+#[cfg(target_os = "macos")]
+use crate::app::services::macos_hotkey_listener;
 use crate::app::services::settings_service::SettingsService;
 use crate::app::services::ui_gateway::UiGateway;
 
@@ -89,8 +91,8 @@ impl MonitorRuntime {
             // コンボキー（Ctrl+Shift+X など）の押下状態（同じく多重検知防止）
             let mut combo_key_down = false;
 
-            // rdev に渡すイベントコールバック。キー押下／解放イベントを受け取る。
-            let callback = move |event: Event| match event.event_type {
+            // キー押下／解放イベントを受け取り、モードに応じたトリガーへ変換する。
+            let handle_event = move |event_type: EventType| match event_type {
                 // ─── キー押下イベント ───────────────────────────────────────
                 EventType::KeyPress(key) => {
                     // 毎回最新の設定を取得することで、実行中の設定変更にも追従する
@@ -174,9 +176,15 @@ impl MonitorRuntime {
                 _ => {}
             };
 
-            // rdev のグローバルリスナーを開始する。
-            // このブロッキング呼び出しはスレッド終了まで戻らない。
-            if let Err(error) = rdev::listen(callback) {
+            // macOS では rdev の文字列変換処理が Ctrl 系イベントで AppKit/HIToolbox の
+            // キュー制約に触れて SIGTRAP するため、文字列化しない軽量リスナーを使う。
+            #[cfg(target_os = "macos")]
+            if let Err(error) = macos_hotkey_listener::listen(handle_event) {
+                eprintln!("global hotkey listener failed: {error:?}");
+            }
+
+            #[cfg(not(target_os = "macos"))]
+            if let Err(error) = rdev::listen(move |event| handle_event(event.event_type)) {
                 eprintln!("global hotkey listener failed: {error:?}");
             }
         });

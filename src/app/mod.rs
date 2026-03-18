@@ -3,3 +3,4 @@
 pub mod contexts;
 pub mod services;
 pub mod states;
+pub mod storage_paths;

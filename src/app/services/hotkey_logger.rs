@@ -1,31 +1,29 @@
 use std::fs::OpenOptions;
+use std::io;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// ホットキートリガーのログをファイルへ追記するロガー。
-/// ログファイルは実行ファイルと同じディレクトリに `hotkey_log.txt` として保存される。
+/// ログファイルはアプリのデータディレクトリに `hotkey_log.txt` として保存される。
 pub struct HotkeyLogger {
     log_path: PathBuf,
     enabled: AtomicBool,
 }
 
 impl HotkeyLogger {
-    /// 実行ファイルのディレクトリを基準にログパスを決定して生成する。
+    /// アプリのデータディレクトリを基準にログパスを決定して生成する。
     pub fn new() -> Self {
         Self::new_with_enabled(false)
     }
 
-    /// 実行ファイルのディレクトリを基準にログパスを決定して生成する。
+    /// アプリのデータディレクトリを基準にログパスを決定して生成する。
     /// `enabled` が false の場合、`log()` は何も書き込まない。
     pub fn new_with_enabled(enabled: bool) -> Self {
-        let exe_dir = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-            .unwrap_or_else(|| PathBuf::from("."));
+        let log_path = default_log_path().unwrap_or_else(|_| PathBuf::from("hotkey_log.txt"));
         Self {
-            log_path: exe_dir.join("hotkey_log.txt"),
+            log_path,
             enabled: AtomicBool::new(enabled),
         }
     }
@@ -102,4 +100,8 @@ fn days_to_ymd(days: u64) -> (u64, u64, u64) {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     (y, m, d)
+}
+
+fn default_log_path() -> io::Result<PathBuf> {
+    crate::app::storage_paths::data_file_path("hotkey_log.txt")
 }

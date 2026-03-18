@@ -7,6 +7,9 @@ name = "ClipKeeper"
 version = "0.9.3"
 dependencies = [
  "arboard",
+ "cocoa",
+ "core-graphics 0.23.2",
+ "dirs",
  "rdev",
  "serde",
  "serde_json",

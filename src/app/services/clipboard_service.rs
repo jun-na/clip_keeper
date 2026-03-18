@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use std::{env, fs, io, path::PathBuf};
+use std::{fs, io, path::PathBuf};
 
 use rdev::{simulate, EventType, Key};
 use serde::{Deserialize, Serialize};
@@ -518,12 +518,5 @@ fn simulate_paste_shortcut() -> Result<(), rdev::SimulateError> {
 }
 
 fn history_file_path() -> io::Result<PathBuf> {
-    let exe_path = env::current_exe()?;
-    let exe_dir = exe_path.parent().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::NotFound,
-            "failed to resolve executable directory",
-        )
-    })?;
-    Ok(exe_dir.join("clipboard_history.json"))
+    crate::app::storage_paths::data_file_path("clipboard_history.json")
 }
