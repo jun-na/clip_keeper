@@ -5,7 +5,24 @@ use slint::{ModelRc, SharedString, VecModel};
 use crate::{HistoryEntry, SavedEntry};
 
 const MAX_CLIPBOARD_ITEMS: usize = 1000;
-const DEFAULT_GROUP_NAME: &str = "デフォルト";
+const FIXED_GROUP_COUNT: usize = 8;
+const PRIMARY_GROUP_NAME: &str = "グループ1";
+
+fn fixed_group_names() -> Vec<String> {
+    (1..=FIXED_GROUP_COUNT)
+        .map(|index| format!("グループ{index}"))
+        .collect()
+}
+
+fn create_fixed_groups() -> (BTreeMap<String, Vec<SavedItem>>, Vec<String>) {
+    let group_order = fixed_group_names();
+    let saved_groups = group_order
+        .iter()
+        .cloned()
+        .map(|name| (name, Vec::new()))
+        .collect();
+    (saved_groups, group_order)
+}
 
 #[derive(Debug, Clone)]
 pub struct SavedItem {
@@ -33,8 +50,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
-        let mut saved_groups = BTreeMap::new();
-        saved_groups.insert(DEFAULT_GROUP_NAME.to_string(), Vec::new());
+        let (saved_groups, group_order) = create_fixed_groups();
         Self {
             history: VecDeque::new(),
             used_items: HashSet::new(),
@@ -42,8 +58,8 @@ impl AppState {
             pending_paste_text: None,
             selected_index: 0,
             saved_groups,
-            group_order: vec![DEFAULT_GROUP_NAME.to_string()],
-            active_group: DEFAULT_GROUP_NAME.to_string(),
+            group_order,
+            active_group: PRIMARY_GROUP_NAME.to_string(),
         }
     }
 
@@ -169,90 +185,24 @@ impl AppState {
     }
 
     pub fn set_active_group(&mut self, group: String) {
-        if !self.saved_groups.contains_key(&group) {
-            self.saved_groups.insert(group.clone(), Vec::new());
-            self.group_order.push(group.clone());
+        if self.saved_groups.contains_key(&group) {
+            self.active_group = group;
         }
-        self.active_group = group;
     }
 
     pub fn group_names(&self) -> Vec<String> {
         self.group_order.clone()
     }
 
-    pub fn add_group(&mut self, name: String) -> bool {
-        let normalized = name.trim();
-        if normalized.is_empty() || self.saved_groups.contains_key(normalized) {
-            return false;
-        }
-        self.saved_groups.insert(normalized.to_string(), Vec::new());
-        self.group_order.push(normalized.to_string());
-        true
-    }
-
-    pub fn rename_group(&mut self, index: usize, new_name: String) -> bool {
-        let normalized = new_name.trim();
-        if normalized.is_empty() {
-            return false;
-        }
-
-        let Some(old_name) = self.group_order.get(index).cloned() else {
-            return false;
-        };
-        if old_name == DEFAULT_GROUP_NAME {
-            return false;
-        }
-        if old_name != normalized && self.saved_groups.contains_key(normalized) {
-            return false;
-        }
-        if old_name == normalized {
-            return true;
-        }
-
-        let Some(items) = self.saved_groups.remove(&old_name) else {
-            return false;
-        };
-        self.saved_groups.insert(normalized.to_string(), items);
-        if let Some(slot) = self.group_order.get_mut(index) {
-            *slot = normalized.to_string();
-        }
-        if self.active_group == old_name {
-            self.active_group = normalized.to_string();
-        }
-        true
-    }
-
-    pub fn delete_group(&mut self, index: usize) -> bool {
-        let Some(target_name) = self.group_order.get(index).cloned() else {
-            return false;
-        };
-        if target_name == DEFAULT_GROUP_NAME {
-            return false;
-        }
-
-        let Some(removed_items) = self.saved_groups.remove(&target_name) else {
-            return false;
-        };
-        self.group_order.retain(|name| name != &target_name);
-        self.saved_groups
-            .entry(DEFAULT_GROUP_NAME.to_string())
-            .or_default()
-            .extend(removed_items);
-
-        if self.active_group == target_name {
-            self.active_group = DEFAULT_GROUP_NAME.to_string();
-        }
-        true
-    }
-
     pub fn add_saved_item(&mut self, group: &str, title: String, content: String) {
-        if !self.saved_groups.contains_key(group) {
-            self.saved_groups.insert(group.to_string(), Vec::new());
-            self.group_order.push(group.to_string());
-        }
+        let target_group = if self.saved_groups.contains_key(group) {
+            group
+        } else {
+            PRIMARY_GROUP_NAME
+        };
         let items = self
             .saved_groups
-            .get_mut(group)
+            .get_mut(target_group)
             .expect("group should exist after initialization");
         items.push(SavedItem { title, content });
     }
@@ -280,29 +230,44 @@ impl AppState {
     }
 
     pub fn restore_saved_groups(&mut self, groups: Vec<SavedGroup>, active_group: Option<String>) {
-        self.saved_groups.clear();
-        self.group_order.clear();
+        let (mut saved_groups, group_order) = create_fixed_groups();
+        let fixed_names = group_order.clone();
+        let mut assigned_groups = HashSet::new();
+        let mut next_unassigned_index = 0usize;
+        let mut restored_active_group = None;
+
         for group in groups {
-            if self.saved_groups.contains_key(&group.name) {
-                continue;
+            let target_group =
+                if fixed_names.contains(&group.name) && !assigned_groups.contains(&group.name) {
+                    group.name.clone()
+                } else {
+                    while next_unassigned_index < fixed_names.len()
+                        && assigned_groups.contains(&fixed_names[next_unassigned_index])
+                    {
+                        next_unassigned_index += 1;
+                    }
+
+                    if next_unassigned_index < fixed_names.len() {
+                        fixed_names[next_unassigned_index].clone()
+                    } else {
+                        fixed_names[FIXED_GROUP_COUNT - 1].clone()
+                    }
+                };
+
+            if active_group.as_deref() == Some(group.name.as_str()) {
+                restored_active_group = Some(target_group.clone());
             }
-            self.group_order.push(group.name.clone());
-            self.saved_groups.insert(group.name, group.items);
+
+            saved_groups
+                .entry(target_group.clone())
+                .or_default()
+                .extend(group.items);
+            assigned_groups.insert(target_group);
         }
-        if !self.saved_groups.contains_key(DEFAULT_GROUP_NAME) {
-            self.saved_groups
-                .insert(DEFAULT_GROUP_NAME.to_string(), Vec::new());
-        }
-        if !self.group_order.iter().any(|name| name == DEFAULT_GROUP_NAME) {
-            self.group_order.push(DEFAULT_GROUP_NAME.to_string());
-        }
-        if let Some(active_group) = active_group {
-            if self.saved_groups.contains_key(&active_group) {
-                self.active_group = active_group;
-            } else {
-                self.active_group = DEFAULT_GROUP_NAME.to_string();
-            }
-        }
+
+        self.saved_groups = saved_groups;
+        self.group_order = group_order;
+        self.active_group = restored_active_group.unwrap_or_else(|| PRIMARY_GROUP_NAME.to_string());
     }
 
     pub fn saved_items_model(&self) -> ModelRc<SavedEntry> {

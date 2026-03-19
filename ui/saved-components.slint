@@ -1,0 +1,259 @@
+import { ComboBox, ScrollView } from "std-widgets.slint";
+import { SavedEntry } from "models.slint";
+
+export component SavedItemsTab inherits Rectangle {
+    background: transparent;
+
+    in property <[SavedEntry]> saved-items;
+    in property <[string]> group-names;
+    in-out property <int> active-group-index: 0;
+    in-out property <int> saved-selected-index: 0;
+    in-out property <int> saved-ctx-target-index: -1;
+    in-out property <bool> saved-ctx-visible: false;
+    in-out property <int> saved-ctx-selected: 0;
+    in-out property <length> scroll-offset-y <=> saved-scroll.viewport-y;
+    out property <length> scroll-visible-height: saved-scroll.visible-height;
+
+    callback request-switch-group(int);
+    callback request-select-saved-item(int);
+    callback request-delete-saved-item(int);
+
+    VerticalLayout {
+        spacing: 0px;
+
+        HorizontalLayout {
+            spacing: 6px;
+            padding-left: 8px;
+            padding-right: 8px;
+            padding-top: 6px;
+            padding-bottom: 4px;
+            height: 36px;
+
+            Text {
+                text: "グループ:";
+                font-size: 13px;
+                vertical-alignment: center;
+                width: 60px;
+            }
+
+            ComboBox {
+                horizontal-stretch: 1;
+                model: root.group-names;
+                current-index <=> root.active-group-index;
+                selected(value) => {
+                    root.request-switch-group(self.current-index);
+                }
+            }
+        }
+
+        saved-scroll := ScrollView {
+            vertical-stretch: 1;
+
+            VerticalLayout {
+                spacing: 4px;
+                padding: 8px;
+
+                if root.saved-items.length == 0: Text {
+                    text: "保存されたアイテムはありません。\n履歴タブでアイテムを右クリック →「保存」で追加できます。";
+                    color: #888888;
+                    wrap: word-wrap;
+                }
+
+                for entry[index] in root.saved-items: Rectangle {
+                    min-height: 48px;
+                    border-radius: 4px;
+                    background: saved-touch.pressed ? #b3cfff
+                              : index == root.saved-selected-index ? #cfe1ff
+                              : saved-touch.has-hover ? #e0e0e0
+                              : #f4f4f4;
+
+                    saved-touch := TouchArea {
+                        clicked => {
+                            root.saved-selected-index = index;
+                            root.request-select-saved-item(index);
+                        }
+                        pointer-event(event) => {
+                            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                                root.saved-ctx-target-index = index;
+                                root.saved-ctx-selected = 0;
+                                root.saved-ctx-visible = true;
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        x: 8px;
+                        y: 4px;
+                        width: parent.width - 44px;
+                        spacing: 2px;
+
+                        Text {
+                            text: "\{index + 1}. \{entry.title}";
+                            color: #111111;
+                            font-weight: 600;
+                            font-size: 13px;
+                            overflow: elide;
+                        }
+
+                        Text {
+                            text: entry.content;
+                            color: #666666;
+                            font-size: 11px;
+                            overflow: elide;
+                        }
+                    }
+
+                    Rectangle {
+                        x: parent.width - 32px;
+                        y: 12px;
+                        width: 24px;
+                        height: 24px;
+                        border-radius: 4px;
+                        background: del-touch.has-hover ? #ffcccc : transparent;
+
+                        del-touch := TouchArea {
+                            clicked => {
+                                root.request-delete-saved-item(index);
+                            }
+                        }
+
+                        Text {
+                            text: "✕";
+                            color: #cc3333;
+                            font-size: 14px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component SavedContextOverlay inherits Rectangle {
+    in-out property <bool> overlay-visible: false;
+    in-out property <int> selected-index: 0;
+    in-out property <int> target-index: -1;
+    in property <length> overlay-width: 0px;
+    in property <length> overlay-height: 0px;
+
+    width: root.overlay-width;
+    height: root.overlay-height;
+    visible: root.overlay-visible;
+    background: #00000040;
+
+    callback request-edit(int);
+    callback request-delete(int);
+
+    TouchArea {
+        clicked => {
+            root.overlay-visible = false;
+        }
+    }
+
+    Rectangle {
+        x: (parent.width - 180px) / 2;
+        y: (parent.height - 80px) / 2;
+        width: 180px;
+        height: 80px;
+        background: white;
+        border-width: 1px;
+        border-color: #999999;
+        border-radius: 6px;
+        clip: true;
+
+        VerticalLayout {
+            spacing: 0px;
+            padding: 4px;
+
+            Rectangle {
+                height: 34px;
+                border-radius: 4px;
+                background: root.selected-index == 0 ? #cfe1ff
+                          : saved-edit-touch.has-hover ? #e8e8e8 : transparent;
+
+                saved-edit-touch := TouchArea {
+                    clicked => {
+                        root.request-edit(root.target-index);
+                        root.overlay-visible = false;
+                    }
+                    moved => {
+                        root.selected-index = 0;
+                    }
+                }
+
+                Rectangle {
+                    x: 10px;
+                    y: 9px;
+                    width: 14px;
+                    height: 14px;
+                    background: #00000000;
+
+                    Path {
+                        x: 1px;
+                        y: 2px;
+                        width: 12px;
+                        height: 10px;
+                        commands: "M 1 9 L 3 11 L 11 3 L 9 1 Z M 1 9 L 1 11 L 3 11";
+                        stroke: #111111;
+                        stroke-width: 1px;
+                        fill: #00000000;
+                    }
+                }
+
+                Text {
+                    text: "編集";
+                    x: 30px;
+                    color: #111111;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                }
+            }
+
+            Rectangle {
+                height: 34px;
+                border-radius: 4px;
+                background: root.selected-index == 1 ? #cfe1ff
+                          : saved-del-touch.has-hover ? #ffe0e0 : transparent;
+
+                saved-del-touch := TouchArea {
+                    clicked => {
+                        root.request-delete(root.target-index);
+                        root.overlay-visible = false;
+                    }
+                    moved => {
+                        root.selected-index = 1;
+                    }
+                }
+
+                Rectangle {
+                    x: 10px;
+                    y: 9px;
+                    width: 14px;
+                    height: 14px;
+                    background: #00000000;
+
+                    Path {
+                        x: 2px;
+                        y: 2px;
+                        width: 10px;
+                        height: 10px;
+                        commands: "M 1 1 L 9 9 M 9 1 L 1 9";
+                        stroke: #cc3333;
+                        stroke-width: 1.6px;
+                        fill: #00000000;
+                    }
+                }
+
+                Text {
+                    text: "削除";
+                    x: 30px;
+                    color: #cc3333;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

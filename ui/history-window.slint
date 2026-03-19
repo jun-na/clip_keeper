@@ -1,0 +1,336 @@
+import { TabWidget } from "std-widgets.slint";
+import { HistoryContextOverlay, HistoryItemsTab } from "history-components.slint";
+import { SavedContextOverlay, SavedItemsTab } from "saved-components.slint";
+import { HistoryEntry, SavedEntry } from "models.slint";
+
+export component HistoryWindow inherits Window {
+    title: "クリップキーパー";
+    min-width: 400px;
+    min-height: 300px;
+    preferred-width: 640px;
+    preferred-height: 420px;
+
+    in property <[HistoryEntry]> history-items;
+    in property <[SavedEntry]> saved-items;
+    in property <[string]> group-names;
+    in-out property <int> selected-index: 0;
+    in-out property <int> saved-selected-index: 0;
+    in-out property <int> active-tab: 0;
+    in-out property <int> active-group-index: 0;
+
+    callback request-hide-window();
+    callback request-select-history-item(int);
+    callback request-save-history-item(int);
+    callback request-move-to-front(int);
+    callback request-bulk-paste-concat(int);
+    callback request-bulk-paste-tab(int);
+    callback request-bulk-paste-newline(int);
+    callback request-select-saved-item(int);
+    callback request-delete-saved-item(int);
+    callback request-edit-saved-item(int);
+    callback request-switch-group(int);
+    callback open_history_context_menu(int);
+    callback open_saved_context_menu(int);
+    callback activate_history_context_action();
+    callback activate_saved_context_action();
+    callback close_history_context_menu();
+    callback close_saved_context_menu();
+    callback select_previous_history_item();
+    callback select_next_history_item();
+    callback activate_selected_history_item();
+    callback select_previous_saved_item();
+    callback select_next_saved_item();
+    callback activate_selected_saved_item();
+
+    property <int> ctx-target-index: -1;
+    property <bool> ctx-visible: false;
+    property <int> ctx-selected: 0;
+
+    property <int> saved-ctx-target-index: -1;
+    property <bool> saved-ctx-visible: false;
+    property <int> saved-ctx-selected: 0;
+
+    property <length> row-height: 48px;
+    property <length> saved-row-height: 52px;
+
+    open_history_context_menu(index) => {
+        root.ctx-target-index = index;
+        root.ctx-selected = 0;
+        root.ctx-visible = true;
+    }
+
+    open_saved_context_menu(index) => {
+        root.saved-ctx-target-index = index;
+        root.saved-ctx-selected = 0;
+        root.saved-ctx-visible = true;
+    }
+
+    activate_history_context_action() => {
+        if root.ctx-selected == 0 { root.request-save-history-item(root.ctx-target-index); }
+        if root.ctx-selected == 1 { root.request-move-to-front(root.ctx-target-index); }
+        if root.ctx-selected == 2 { root.request-bulk-paste-concat(root.ctx-target-index); }
+        if root.ctx-selected == 3 { root.request-bulk-paste-tab(root.ctx-target-index); }
+        if root.ctx-selected == 4 { root.request-bulk-paste-newline(root.ctx-target-index); }
+        root.close_history_context_menu();
+    }
+
+    activate_saved_context_action() => {
+        if root.saved-ctx-selected == 0 { root.request-edit-saved-item(root.saved-ctx-target-index); }
+        if root.saved-ctx-selected == 1 { root.request-delete-saved-item(root.saved-ctx-target-index); }
+        root.close_saved_context_menu();
+    }
+
+    close_history_context_menu() => {
+        root.ctx-visible = false;
+    }
+
+    close_saved_context_menu() => {
+        root.saved-ctx-visible = false;
+    }
+
+    select_previous_history_item() => {
+        if root.selected-index > 0 {
+            root.selected-index -= 1;
+            if root.selected-index * root.row-height < history-tab.scroll-offset-y * -1 {
+                history-tab.scroll-offset-y = -1 * root.selected-index * root.row-height;
+            }
+        }
+    }
+
+    select_next_history_item() => {
+        if root.selected-index < root.history-items.length - 1 {
+            root.selected-index += 1;
+            if (root.selected-index + 1) * root.row-height > history-tab.scroll-offset-y * -1 + history-tab.scroll-visible-height {
+                history-tab.scroll-offset-y = -1 * ((root.selected-index + 1) * root.row-height - history-tab.scroll-visible-height);
+            }
+        }
+    }
+
+    activate_selected_history_item() => {
+        if root.history-items.length > 0 {
+            root.request-select-history-item(root.selected-index);
+        }
+    }
+
+    select_previous_saved_item() => {
+        if root.saved-selected-index > 0 {
+            root.saved-selected-index -= 1;
+            if root.saved-selected-index * root.saved-row-height < saved-tab.scroll-offset-y * -1 {
+                saved-tab.scroll-offset-y = -1 * root.saved-selected-index * root.saved-row-height;
+            }
+        }
+    }
+
+    select_next_saved_item() => {
+        if root.saved-selected-index < root.saved-items.length - 1 {
+            root.saved-selected-index += 1;
+            if (root.saved-selected-index + 1) * root.saved-row-height > saved-tab.scroll-offset-y * -1 + saved-tab.scroll-visible-height {
+                saved-tab.scroll-offset-y = -1 * ((root.saved-selected-index + 1) * root.saved-row-height - saved-tab.scroll-visible-height);
+            }
+        }
+    }
+
+    activate_selected_saved_item() => {
+        if root.saved-items.length > 0 {
+            root.request-select-saved-item(root.saved-selected-index);
+        }
+    }
+
+    forward-focus: key-handler;
+    changed active-tab => {
+        key-handler.focus();
+    }
+
+    key-handler := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Tab {
+                return accept;
+            }
+            if root.ctx-visible {
+                if event.text == Key.UpArrow || event.text == "k" {
+                    if root.ctx-selected > 0 {
+                        root.ctx-selected -= 1;
+                    }
+                    return accept;
+                }
+                if event.text == Key.DownArrow || event.text == "j" {
+                    if root.ctx-selected < 4 {
+                        root.ctx-selected += 1;
+                    }
+                    return accept;
+                }
+                if event.text == Key.Return {
+                    root.activate_history_context_action();
+                    return accept;
+                }
+                if event.text == Key.Escape || event.text == " " {
+                    root.close_history_context_menu();
+                    return accept;
+                }
+                return accept;
+            }
+            if root.saved-ctx-visible {
+                if event.text == Key.UpArrow || event.text == "k" {
+                    if root.saved-ctx-selected > 0 {
+                        root.saved-ctx-selected -= 1;
+                    }
+                    return accept;
+                }
+                if event.text == Key.DownArrow || event.text == "j" {
+                    if root.saved-ctx-selected < 1 {
+                        root.saved-ctx-selected += 1;
+                    }
+                    return accept;
+                }
+                if event.text == Key.Return {
+                    root.activate_saved_context_action();
+                    return accept;
+                }
+                if event.text == Key.Escape || event.text == " " {
+                    root.close_saved_context_menu();
+                    return accept;
+                }
+                return accept;
+            }
+
+            if event.text == Key.Escape {
+                root.request-hide-window();
+                return accept;
+            }
+
+            if event.text == Key.LeftArrow || event.text == "h" {
+                if root.active-tab > 0 {
+                    root.active-tab -= 1;
+                }
+                return accept;
+            }
+            if event.text == Key.RightArrow || event.text == "l" {
+                if root.active-tab < 1 {
+                    root.active-tab += 1;
+                }
+                return accept;
+            }
+
+            if root.active-tab == 0 {
+                if event.text == Key.UpArrow || event.text == "k" {
+                    root.select_previous_history_item();
+                    return accept;
+                }
+                if event.text == Key.DownArrow || event.text == "j" {
+                    root.select_next_history_item();
+                    return accept;
+                }
+                if event.text == Key.Return {
+                    root.activate_selected_history_item();
+                    return accept;
+                }
+                if event.text == " " {
+                    if root.history-items.length > 0 {
+                        root.open_history_context_menu(root.selected-index);
+                    }
+                    return accept;
+                }
+            }
+            if root.active-tab == 1 {
+                if event.text == Key.UpArrow || event.text == "k" {
+                    root.select_previous_saved_item();
+                    return accept;
+                }
+                if event.text == Key.DownArrow || event.text == "j" {
+                    root.select_next_saved_item();
+                    return accept;
+                }
+                if event.text == Key.Return {
+                    root.activate_selected_saved_item();
+                    return accept;
+                }
+                if event.text == " " {
+                    if root.saved-items.length > 0 {
+                        root.open_saved_context_menu(root.saved-selected-index);
+                    }
+                    return accept;
+                }
+            }
+            reject
+        }
+
+        TabWidget {
+            current-index <=> root.active-tab;
+
+            Tab {
+                title: "履歴";
+
+                history-tab := HistoryItemsTab {
+                    history-items: root.history-items;
+                    selected-index <=> root.selected-index;
+                    ctx-target-index <=> root.ctx-target-index;
+                    ctx-visible <=> root.ctx-visible;
+                    ctx-selected <=> root.ctx-selected;
+                    request-select-history-item(index) => {
+                        root.request-select-history-item(index);
+                    }
+                }
+            }
+
+            Tab {
+                title: "保存済み";
+
+                saved-tab := SavedItemsTab {
+                    saved-items: root.saved-items;
+                    group-names: root.group-names;
+                    active-group-index <=> root.active-group-index;
+                    saved-selected-index <=> root.saved-selected-index;
+                    saved-ctx-target-index <=> root.saved-ctx-target-index;
+                    saved-ctx-visible <=> root.saved-ctx-visible;
+                    saved-ctx-selected <=> root.saved-ctx-selected;
+                    request-switch-group(index) => {
+                        root.request-switch-group(index);
+                    }
+                    request-select-saved-item(index) => {
+                        root.request-select-saved-item(index);
+                    }
+                    request-delete-saved-item(index) => {
+                        root.request-delete-saved-item(index);
+                    }
+                }
+            }
+        }
+    }
+
+    HistoryContextOverlay {
+        overlay-visible <=> root.ctx-visible;
+        selected-index <=> root.ctx-selected;
+        target-index <=> root.ctx-target-index;
+        overlay-width: root.width;
+        overlay-height: root.height;
+        request-save(index) => {
+            root.request-save-history-item(index);
+        }
+        request-move-to-front(index) => {
+            root.request-move-to-front(index);
+        }
+        request-bulk-paste-concat(index) => {
+            root.request-bulk-paste-concat(index);
+        }
+        request-bulk-paste-tab(index) => {
+            root.request-bulk-paste-tab(index);
+        }
+        request-bulk-paste-newline(index) => {
+            root.request-bulk-paste-newline(index);
+        }
+    }
+
+    SavedContextOverlay {
+        overlay-visible <=> root.saved-ctx-visible;
+        selected-index <=> root.saved-ctx-selected;
+        target-index <=> root.saved-ctx-target-index;
+        overlay-width: root.width;
+        overlay-height: root.height;
+        request-edit(index) => {
+            root.request-edit-saved-item(index);
+        }
+        request-delete(index) => {
+            root.request-delete-saved-item(index);
+        }
+    }
+}

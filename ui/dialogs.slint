@@ -1,0 +1,208 @@
+import { Button, CheckBox, ComboBox, LineEdit, TextEdit, VerticalBox } from "std-widgets.slint";
+
+export component SaveDialogWindow inherits Window {
+    title: "アイテム保存";
+    width: 500px;
+    height: 440px;
+
+    in-out property <string> save-title: "";
+    in-out property <string> save-content: "";
+    in property <[string]> group-names;
+    in-out property <int> selected-group-index: 0;
+
+    callback request-confirm-save(string, string, string);
+    callback request-cancel-save();
+
+    VerticalBox {
+        spacing: 8px;
+        padding: 12px;
+
+        Text {
+            text: "アイテムを保存";
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        Text { text: "グループ"; font-weight: 600; }
+        HorizontalLayout {
+            spacing: 6px;
+            height: 30px;
+
+            ComboBox {
+                width: parent.width;
+                model: root.group-names;
+                current-index <=> root.selected-group-index;
+            }
+        }
+
+        Text { text: "タイトル"; font-weight: 600; }
+        LineEdit {
+            text <=> root.save-title;
+        }
+
+        Text { text: "内容"; font-weight: 600; }
+        TextEdit {
+            text <=> root.save-content;
+            vertical-stretch: 1;
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+
+            Button {
+                text: "キャンセル";
+                clicked => {
+                    root.request-cancel-save();
+                }
+            }
+
+            Button {
+                text: "保存";
+                clicked => {
+                    if root.group-names.length > 0
+                       && root.selected-group-index >= 0
+                       && root.selected-group-index < root.group-names.length {
+                        root.request-confirm-save(root.group-names[root.selected-group-index], root.save-title, root.save-content);
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component EditSavedDialogWindow inherits Window {
+    title: "アイテム編集";
+    width: 500px;
+    height: 400px;
+
+    in-out property <string> edit-title: "";
+    in-out property <string> edit-content: "";
+    in-out property <int> edit-index: -1;
+
+    callback request-confirm-edit(int, string, string);
+    callback request-cancel-edit();
+
+    VerticalBox {
+        spacing: 8px;
+        padding: 12px;
+
+        Text {
+            text: "アイテムを編集";
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        Text { text: "タイトル"; font-weight: 600; }
+        LineEdit {
+            text <=> root.edit-title;
+        }
+
+        Text { text: "内容"; font-weight: 600; }
+        TextEdit {
+            text <=> root.edit-content;
+            vertical-stretch: 1;
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+
+            Button {
+                text: "キャンセル";
+                clicked => {
+                    root.request-cancel-edit();
+                }
+            }
+
+            Button {
+                text: "保存";
+                clicked => {
+                    root.request-confirm-edit(root.edit-index, root.edit-title, root.edit-content);
+                }
+            }
+        }
+    }
+}
+
+export component SettingsWindow inherits Window {
+    title: "クリップキーパー設定";
+    width: 460px;
+    height: 360px;
+
+    in-out property <int> hotkey-mode: 0;
+    in-out property <bool> hotkey-combo-ctrl-required: true;
+    in-out property <bool> hotkey-combo-shift-required: false;
+    in-out property <string> hotkey-combo-key: "H";
+
+    callback request-set-hotkey-mode(int);
+    callback request-set-hotkey-combo-ctrl-required(bool);
+    callback request-set-hotkey-combo-shift-required(bool);
+    callback request-set-hotkey-combo-key(string);
+
+    VerticalBox {
+        spacing: 8px;
+        padding: 12px;
+
+        Text {
+            text: "設定";
+            font-size: 22px;
+            font-weight: 700;
+        }
+
+        Text {
+            text: "ホットキー設定";
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        Text {
+            text: "履歴ウィンドウの呼び出し方法";
+        }
+
+        ComboBox {
+            model: ["Shift 2回押し", "Ctrl 2回押し", "修飾キー + ホットキー"];
+            current-index <=> root.hotkey-mode;
+            selected(value) => {
+                root.request-set-hotkey-mode(root.hotkey-mode);
+            }
+        }
+
+        if root.hotkey-mode == 2 : VerticalLayout {
+            spacing: 4px;
+            padding-top: 4px;
+
+            CheckBox {
+                text: "Ctrlを必須にする";
+                checked <=> root.hotkey-combo-ctrl-required;
+                toggled => {
+                    root.request-set-hotkey-combo-ctrl-required(self.checked);
+                }
+            }
+
+            CheckBox {
+                text: "Shiftを必須にする";
+                checked <=> root.hotkey-combo-shift-required;
+                toggled => {
+                    root.request-set-hotkey-combo-shift-required(self.checked);
+                }
+            }
+
+            Text {
+                text: "ホットキー（A-Z / 0-9、初期値 H）";
+            }
+
+            LineEdit {
+                text <=> root.hotkey-combo-key;
+                edited(new-value) => {
+                    root.request-set-hotkey-combo-key(new-value);
+                }
+            }
+        }
+
+        Text {
+            wrap: word-wrap;
+            text: "変更はすぐに settings.json に保存されます。";
+        }
+    }
+}

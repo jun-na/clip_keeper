@@ -312,57 +312,6 @@ impl ClipboardService {
         }
     }
 
-    pub fn add_group(&self, name: String) -> bool {
-        let mut app_state = self
-            .state_context
-            .app_state
-            .lock()
-            .expect("app state lock poisoned");
-        let changed = app_state.add_group(name);
-        if changed {
-            if let Err(error) = self.save_history_to_disk_locked(&app_state) {
-                eprintln!("failed to save after adding group: {error}");
-            }
-        }
-        changed
-    }
-
-    pub fn rename_group(&self, index: i32, new_name: String) -> bool {
-        if index < 0 {
-            return false;
-        }
-        let mut app_state = self
-            .state_context
-            .app_state
-            .lock()
-            .expect("app state lock poisoned");
-        let changed = app_state.rename_group(index as usize, new_name);
-        if changed {
-            if let Err(error) = self.save_history_to_disk_locked(&app_state) {
-                eprintln!("failed to save after renaming group: {error}");
-            }
-        }
-        changed
-    }
-
-    pub fn delete_group(&self, index: i32) -> bool {
-        if index < 0 {
-            return false;
-        }
-        let mut app_state = self
-            .state_context
-            .app_state
-            .lock()
-            .expect("app state lock poisoned");
-        let changed = app_state.delete_group(index as usize);
-        if changed {
-            if let Err(error) = self.save_history_to_disk_locked(&app_state) {
-                eprintln!("failed to save after deleting group: {error}");
-            }
-        }
-        changed
-    }
-
     pub fn prepare_paste_from_saved_index(&self, index: i32) -> bool {
         if index < 0 {
             return false;
