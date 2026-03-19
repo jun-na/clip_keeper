@@ -4,11 +4,10 @@ use std::{fs, io, path::PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::app::contexts::state_context::StateContext;
-use crate::app::states::settings_state::SettingsState;
+use crate::app::features::settings::state::SettingsState;
 
 #[derive(Debug, Clone)]
 pub struct HotkeySettings {
-    /// ホットキーモード: 0=Shift 2回押し, 1=Ctrl 2回押し, 2=修飾キー+ホットキー
     pub hotkey_mode: i32,
     pub combo_ctrl_required: bool,
     pub combo_shift_required: bool,
@@ -26,14 +25,12 @@ struct PersistedSettings {
     hotkey_combo_shift_required: bool,
     #[serde(default)]
     hotkey_combo_key: String,
-    // 旧フィールド（マイグレーション用に読み込みだけ対応する）
     #[serde(default)]
     hotkey_ctrl_double_tap_enabled: Option<bool>,
     #[serde(default)]
     hotkey_shift_double_tap_enabled: Option<bool>,
 }
 
-// ホットキー設定の読み書き・永続化を集約するサービス。
 pub struct SettingsService {
     state_context: Arc<StateContext>,
 }
@@ -78,7 +75,6 @@ impl SettingsService {
             .lock()
             .expect("settings state lock poisoned");
 
-        // 旧形式からのマイグレーション: hotkey_mode が 0 で旧フィールドが存在する場合
         if persisted.hotkey_mode == 0 {
             if let Some(true) = persisted.hotkey_ctrl_double_tap_enabled {
                 state.hotkey_mode = 1;

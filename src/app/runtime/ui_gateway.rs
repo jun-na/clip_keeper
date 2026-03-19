@@ -3,14 +3,11 @@ use std::sync::{Arc, Mutex};
 use slint::winit_030::{winit, EventResult, WinitWindowAccessor};
 use slint::{CloseRequestResponse, ComponentHandle, Model, SharedString, Weak};
 
-use crate::app::services::clipboard_service::ClipboardService;
-use crate::app::services::settings_service::SettingsService;
+use crate::app::features::clipboard::service::ClipboardService;
+use crate::app::features::settings::service::SettingsService;
 
-// UIコンポーネント操作を集約するゲートウェイ。
 pub struct UiGateway {
-    // 履歴データ取得に利用するサービス。
     clipboard_service: Arc<ClipboardService>,
-    // 設定表示と更新に利用するサービス。
     settings_service: Arc<SettingsService>,
     history_window: Mutex<Option<Weak<crate::HistoryWindow>>>,
     settings_window: Mutex<Option<Weak<crate::SettingsWindow>>>,
@@ -23,7 +20,6 @@ pub struct UiGateway {
 }
 
 impl UiGateway {
-    /// UIゲートウェイを生成する。Window参照は後から attach する。
     pub fn new(
         clipboard_service: Arc<ClipboardService>,
         settings_service: Arc<SettingsService>,
@@ -97,7 +93,6 @@ impl UiGateway {
         self.wire_callbacks();
     }
 
-    /// Slint 側のコールバックと Rust 側の処理を接続する。
     pub fn wire_callbacks(&self) {
         let history_weak = self
             .history_window
@@ -165,13 +160,11 @@ impl UiGateway {
                     }
                 });
 
-                // 右クリック「保存」→ 保存ダイアログを開く
                 history_window.on_request_save_history_item({
                     let clipboard_service = self.clipboard_service.clone();
                     let save_dialog_weak = save_dialog_weak.clone();
                     move |index| {
-                        let Some(content) = clipboard_service.get_history_item_content(index)
-                        else {
+                        let Some(content) = clipboard_service.get_history_item_content(index) else {
                             return;
                         };
                         let title = generate_title_from_content(&content);
@@ -189,7 +182,6 @@ impl UiGateway {
                     }
                 });
 
-                // 右クリック「最新に移動」
                 history_window.on_request_move_to_front({
                     let clipboard_service = self.clipboard_service.clone();
                     let history_weak = history_weak.clone();
@@ -202,7 +194,6 @@ impl UiGateway {
                     }
                 });
 
-                // 一括貼り付け（連結）
                 history_window.on_request_bulk_paste_concat({
                     let clipboard_service = self.clipboard_service.clone();
                     let history_weak = history_weak.clone();
@@ -217,7 +208,6 @@ impl UiGateway {
                     }
                 });
 
-                // 一括貼り付け（Tab挿入）
                 history_window.on_request_bulk_paste_tab({
                     let clipboard_service = self.clipboard_service.clone();
                     let history_weak = history_weak.clone();
@@ -232,7 +222,6 @@ impl UiGateway {
                     }
                 });
 
-                // 一括貼り付け（改行挿入）
                 history_window.on_request_bulk_paste_newline({
                     let clipboard_service = self.clipboard_service.clone();
                     let history_weak = history_weak.clone();
@@ -247,7 +236,6 @@ impl UiGateway {
                     }
                 });
 
-                // 保存タブ右クリック「編集」
                 history_window.on_request_edit_saved_item({
                     let clipboard_service = self.clipboard_service.clone();
                     let edit_saved_dialog_weak = edit_saved_dialog_weak.clone();
@@ -268,7 +256,6 @@ impl UiGateway {
                     }
                 });
 
-                // グループ切り替え
                 history_window.on_request_switch_group({
                     let clipboard_service = self.clipboard_service.clone();
                     let history_weak = history_weak.clone();
@@ -286,7 +273,6 @@ impl UiGateway {
                     }
                 });
 
-                // グループ追加ダイアログを開く
                 history_window.on_request_open_create_group_dialog({
                     let group_name_dialog_weak = group_name_dialog_weak.clone();
                     move || {
@@ -300,7 +286,6 @@ impl UiGateway {
                     }
                 });
 
-                // グループ改名ダイアログを開く
                 history_window.on_request_open_rename_group_dialog({
                     let clipboard_service = self.clipboard_service.clone();
                     let group_name_dialog_weak = group_name_dialog_weak.clone();
@@ -325,7 +310,6 @@ impl UiGateway {
                     }
                 });
 
-                // グループ削除ダイアログを開く
                 history_window.on_request_open_delete_group_dialog({
                     let clipboard_service = self.clipboard_service.clone();
                     let group_delete_dialog_weak = group_delete_dialog_weak.clone();
@@ -351,7 +335,6 @@ impl UiGateway {
                     }
                 });
 
-                // 保存済みアイテムをクリック → 貼り付け
                 history_window.on_request_select_saved_item({
                     let clipboard_service = self.clipboard_service.clone();
                     let history_weak = history_weak.clone();
@@ -366,7 +349,6 @@ impl UiGateway {
                     }
                 });
 
-                // 保存済みアイテムを削除
                 history_window.on_request_delete_saved_item({
                     let clipboard_service = self.clipboard_service.clone();
                     let history_weak = history_weak.clone();
@@ -426,7 +408,6 @@ impl UiGateway {
             }
         }
 
-        // 保存ダイアログのコールバック
         if let Some(save_dialog_weak) = save_dialog_weak {
             if let Some(save_dialog) = save_dialog_weak.upgrade() {
                 save_dialog.on_request_confirm_save({
@@ -448,7 +429,6 @@ impl UiGateway {
                         if let Some(dialog) = save_dialog_weak.upgrade() {
                             let _ = dialog.hide();
                         }
-                        // 履歴ウィンドウの保存リスト・グループも更新
                         if let Some(history_weak) = &history_weak {
                             if let Some(window) = history_weak.upgrade() {
                                 window.set_group_names(clipboard_service.group_names_model());
@@ -479,7 +459,6 @@ impl UiGateway {
             }
         }
 
-        // 編集ダイアログのコールバック
         if let Some(edit_saved_dialog_weak) = edit_saved_dialog_weak {
             if let Some(edit_dialog) = edit_saved_dialog_weak.upgrade() {
                 edit_dialog.on_request_confirm_edit({
@@ -528,7 +507,6 @@ impl UiGateway {
             }
         }
 
-        // グループ名ダイアログのコールバック
         if let Some(group_name_dialog_weak) = group_name_dialog_weak {
             if let Some(dialog) = group_name_dialog_weak.upgrade() {
                 dialog.on_request_confirm({
@@ -551,7 +529,7 @@ impl UiGateway {
 
                         let mode = group_name_dialog_weak
                             .upgrade()
-                            .map(|d| d.get_dialog_mode())
+                            .map(|dialog| dialog.get_dialog_mode())
                             .unwrap_or(0);
                         let changed = if mode == 0 {
                             if clipboard_service.add_group(normalized.clone()) {
@@ -561,7 +539,7 @@ impl UiGateway {
                                 false
                             }
                         } else {
-                            let index = rename_index_store.lock().map(|v| *v).unwrap_or(-1);
+                            let index = rename_index_store.lock().map(|value| *value).unwrap_or(-1);
                             clipboard_service.rename_group(index, normalized)
                         };
 
@@ -605,7 +583,6 @@ impl UiGateway {
             }
         }
 
-        // グループ削除ダイアログのコールバック
         if let Some(group_delete_dialog_weak) = group_delete_dialog_weak {
             if let Some(dialog) = group_delete_dialog_weak.upgrade() {
                 dialog.on_request_confirm_delete({
@@ -618,7 +595,7 @@ impl UiGateway {
                         .clone();
                     let delete_index_store = self.group_delete_target_index.clone();
                     move || {
-                        let index = delete_index_store.lock().map(|v| *v).unwrap_or(-1);
+                        let index = delete_index_store.lock().map(|value| *value).unwrap_or(-1);
                         if clipboard_service.delete_group(index) {
                             if let Some(history_weak) = &history_weak {
                                 if let Some(window) = history_weak.upgrade() {
@@ -659,7 +636,6 @@ impl UiGateway {
         }
     }
 
-    /// 履歴データをセットして履歴ウィンドウを表示する。
     pub fn show_history_window(&self) {
         let clipboard_service = self.clipboard_service.clone();
         let history_window = self
@@ -675,7 +651,6 @@ impl UiGateway {
                     window.set_saved_items(clipboard_service.saved_items_model());
                     window.set_group_names(clipboard_service.group_names_model());
                     window.set_active_group_index(clipboard_service.active_group_index());
-                    // 前回保存された選択位置を復元する
                     let saved_index = clipboard_service.selected_index();
                     let item_count = window.get_history_items().row_count() as i32;
                     let index = if item_count > 0 {
@@ -692,7 +667,6 @@ impl UiGateway {
         });
     }
 
-    /// 設定ウィンドウを表示する。
     pub fn show_settings_window(&self) {
         let settings_service = self.settings_service.clone();
         let settings_window = self
@@ -717,7 +691,6 @@ impl UiGateway {
         });
     }
 
-    /// 履歴ウィンドウが開いている場合に表示データだけを更新する。
     pub fn refresh_history_model(&self) {
         let clipboard_service = self.clipboard_service.clone();
         let history_window = self
@@ -745,7 +718,6 @@ fn hook_hide_on_focus_lost(window: &slint::Window) {
     });
 }
 
-/// 指定ウィンドウにアプリアイコンを設定する。
 fn set_app_icon(window: &slint::Window) {
     let rgba = include_bytes!("../../../assets/tray-icon.rgba").to_vec();
     if let Ok(icon) = winit::window::Icon::from_rgba(rgba, 32, 32) {
@@ -762,7 +734,6 @@ fn bring_to_front(window: &slint::Window) {
     });
 }
 
-/// コンテンツの先頭行からタイトルを自動生成する。
 fn generate_title_from_content(content: &str) -> String {
     let first_line = content.lines().next().unwrap_or("");
     let truncated: String = first_line.chars().take(30).collect();

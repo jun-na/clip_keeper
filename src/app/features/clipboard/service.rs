@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use slint::{ModelRc, SharedString};
 
 use crate::app::contexts::state_context::StateContext;
-use crate::app::states::app_state::{SavedGroup, SavedItem};
+use crate::app::features::clipboard::state::{AppState, SavedGroup, SavedItem};
 use crate::{HistoryEntry, SavedEntry};
 
 // クリップボード履歴に関する状態読み書きを集約するサービス。
@@ -36,7 +36,6 @@ struct PersistedClipboardHistory {
     selected_index: i32,
     #[serde(default)]
     used_items: Vec<String>,
-    // v1 互換: フラットな saved_items があればデフォルトグループへ移行
     #[serde(default)]
     saved_items: Vec<PersistedSavedItem>,
     #[serde(default)]
@@ -46,15 +45,11 @@ struct PersistedClipboardHistory {
 }
 
 impl ClipboardService {
-    /// StateContext を受け取り ClipboardService を生成する。
     pub fn new(state_context: Arc<StateContext>) -> Self {
         Self { state_context }
     }
 
-    /// クリップボード文字列を履歴へ追加する。
-    /// 追加が発生した場合 true を返す。
     pub fn push_clipboard_text(&self, text: String) -> bool {
-        // 共有状態へ書き込み。
         let mut app_state = self
             .state_context
             .app_state
@@ -62,7 +57,6 @@ impl ClipboardService {
             .expect("app state lock poisoned");
         let changed = app_state.push_clipboard(text);
         if changed {
-            // 履歴変更時にディスクへ保存する。
             if let Err(error) = self.save_history_to_disk_locked(&app_state) {
                 eprintln!("failed to save clipboard history: {error}");
             }
@@ -71,9 +65,7 @@ impl ClipboardService {
         changed
     }
 
-    /// UI表示用の履歴モデルを取得する。
     pub fn history_model(&self) -> ModelRc<HistoryEntry> {
-        // UI表示用モデルとして履歴を読み出す。
         let app_state = self
             .state_context
             .app_state
@@ -82,7 +74,6 @@ impl ClipboardService {
         app_state.history_model()
     }
 
-    /// アプリ起動時に履歴ファイルを読み込んで状態へ復元する。
     pub fn load_history_from_disk(&self) -> io::Result<()> {
         let path = history_file_path()?;
         if !path.exists() {
@@ -107,20 +98,19 @@ impl ClipboardService {
         app_state.set_selected_index(persisted.selected_index);
         app_state.restore_used_items(persisted.used_items);
 
-        // グループ形式があればそちらを使い、なければ旧 saved_items をデフォルトグループへ移行
         if !persisted.saved_groups.is_empty() {
             app_state.restore_saved_groups(
                 persisted
                     .saved_groups
                     .into_iter()
-                    .map(|g| SavedGroup {
-                        name: g.name,
-                        items: g
+                    .map(|group| SavedGroup {
+                        name: group.name,
+                        items: group
                             .items
                             .into_iter()
-                            .map(|i| SavedItem {
-                                title: i.title,
-                                content: i.content,
+                            .map(|item| SavedItem {
+                                title: item.title,
+                                content: item.content,
                             })
                             .collect(),
                     })
@@ -128,16 +118,15 @@ impl ClipboardService {
                 persisted.active_group,
             );
         } else if !persisted.saved_items.is_empty() {
-            // v1互換: フラットな saved_items をデフォルトグループへ
             app_state.restore_saved_groups(
                 vec![SavedGroup {
                     name: "デフォルト".to_string(),
                     items: persisted
                         .saved_items
                         .into_iter()
-                        .map(|i| SavedItem {
-                            title: i.title,
-                            content: i.content,
+                        .map(|item| SavedItem {
+                            title: item.title,
+                            content: item.content,
                         })
                         .collect(),
                 }],
@@ -147,7 +136,6 @@ impl ClipboardService {
         Ok(())
     }
 
-    /// 履歴で選択した項目を貼り付け待機状態にする。
     pub fn prepare_paste_from_history_index(&self, index: i32) -> bool {
         if index < 0 {
             return false;
@@ -164,7 +152,6 @@ impl ClipboardService {
             };
             app_state.mark_as_used(&text);
             app_state.set_pending_paste(text.clone());
-            // 選択インデックスを保存する。
             app_state.set_selected_index(index);
             if let Err(error) = self.save_history_to_disk_locked(&app_state) {
                 eprintln!("failed to save selected index: {error}");
@@ -172,7 +159,6 @@ impl ClipboardService {
             text
         };
 
-        // 貼り付けキー送信前にクリップボード自体も更新しておく。
         if let Ok(mut clipboard) = arboard::Clipboard::new() {
             let _ = clipboard.set_text(text);
         }
@@ -180,7 +166,6 @@ impl ClipboardService {
         true
     }
 
-    /// 貼り付け待機があれば、フォーカス遷移後に貼り付けキーを送信する。
     pub fn trigger_pending_paste(&self) {
         let pending = {
             let mut app_state = self
@@ -196,7 +181,6 @@ impl ClipboardService {
         }
 
         thread::spawn(move || {
-            // 履歴ウィンドウが隠れ、別アプリにフォーカスが移るまで待つ。
             thread::sleep(Duration::from_millis(180));
             if let Err(error) = simulate_paste_shortcut() {
                 eprintln!("failed to simulate paste shortcut: {error:?}");
@@ -204,7 +188,6 @@ impl ClipboardService {
         });
     }
 
-    /// 保存された選択インデックスを取得する。
     pub fn selected_index(&self) -> i32 {
         let app_state = self
             .state_context
@@ -214,7 +197,6 @@ impl ClipboardService {
         app_state.selected_index()
     }
 
-    /// 履歴アイテムの内容を取得する。
     pub fn get_history_item_content(&self, index: i32) -> Option<String> {
         if index < 0 {
             return None;
@@ -227,7 +209,6 @@ impl ClipboardService {
         app_state.history_item_at(index as usize)
     }
 
-    /// 先頭から指定インデックスまでの履歴を指定セパレータで連結し、貼り付け待機状態にする。
     pub fn prepare_bulk_paste(&self, up_to_index: i32, separator: &str) -> bool {
         if up_to_index < 0 {
             return false;
@@ -255,7 +236,6 @@ impl ClipboardService {
         true
     }
 
-    /// グループ名を指定して保存アイテムを追加しディスクに永続化する。
     pub fn add_saved_item(&self, group: &str, title: String, content: String) {
         let mut app_state = self
             .state_context
@@ -268,7 +248,6 @@ impl ClipboardService {
         }
     }
 
-    /// アクティブグループの保存アイテムを削除しディスクに永続化する。
     pub fn remove_saved_item(&self, index: i32) {
         if index < 0 {
             return;
@@ -285,7 +264,6 @@ impl ClipboardService {
         }
     }
 
-    /// アクティブグループの保存アイテムの UI モデルを取得する。
     pub fn saved_items_model(&self) -> ModelRc<SavedEntry> {
         let app_state = self
             .state_context
@@ -295,7 +273,6 @@ impl ClipboardService {
         app_state.saved_items_model()
     }
 
-    /// グループ名の UI モデルを取得する。
     pub fn group_names_model(&self) -> ModelRc<SharedString> {
         let app_state = self
             .state_context
@@ -305,7 +282,6 @@ impl ClipboardService {
         app_state.group_names_model()
     }
 
-    /// グループ名の Vec を取得する。
     pub fn group_names(&self) -> Vec<String> {
         let app_state = self
             .state_context
@@ -315,7 +291,6 @@ impl ClipboardService {
         app_state.group_names()
     }
 
-    /// アクティブグループのインデックスを取得する。
     pub fn active_group_index(&self) -> i32 {
         let app_state = self
             .state_context
@@ -325,7 +300,6 @@ impl ClipboardService {
         app_state.active_group_index()
     }
 
-    /// アクティブグループを切り替える。
     pub fn set_active_group(&self, group: String) {
         let mut app_state = self
             .state_context
@@ -338,7 +312,6 @@ impl ClipboardService {
         }
     }
 
-    /// 新しいグループを追加する。
     pub fn add_group(&self, name: String) -> bool {
         let mut app_state = self
             .state_context
@@ -354,7 +327,6 @@ impl ClipboardService {
         changed
     }
 
-    /// 指定インデックスのグループ名を変更する。
     pub fn rename_group(&self, index: i32, new_name: String) -> bool {
         if index < 0 {
             return false;
@@ -373,7 +345,6 @@ impl ClipboardService {
         changed
     }
 
-    /// 指定インデックスのグループを削除する（アイテムはデフォルトへ移動）。
     pub fn delete_group(&self, index: i32) -> bool {
         if index < 0 {
             return false;
@@ -392,7 +363,6 @@ impl ClipboardService {
         changed
     }
 
-    /// 保存アイテムを選択して貼り付け待機状態にする。
     pub fn prepare_paste_from_saved_index(&self, index: i32) -> bool {
         if index < 0 {
             return false;
@@ -415,7 +385,6 @@ impl ClipboardService {
         true
     }
 
-    /// 履歴アイテムを最新（先頭）へ移動する。
     pub fn move_history_to_front(&self, index: i32) {
         if index <= 0 {
             return;
@@ -432,7 +401,6 @@ impl ClipboardService {
         }
     }
 
-    /// アクティブグループの保存アイテムのタイトルと内容を取得する。
     pub fn get_saved_item(&self, index: i32) -> Option<(String, String)> {
         if index < 0 {
             return None;
@@ -447,7 +415,6 @@ impl ClipboardService {
             .map(|item| (item.title.clone(), item.content.clone()))
     }
 
-    /// アクティブグループの保存アイテムを更新しディスクに永続化する。
     pub fn update_saved_item(&self, index: i32, title: String, content: String) {
         if index < 0 {
             return;
@@ -464,28 +431,25 @@ impl ClipboardService {
         }
     }
 
-    fn save_history_to_disk_locked(
-        &self,
-        app_state: &crate::app::states::app_state::AppState,
-    ) -> io::Result<()> {
+    fn save_history_to_disk_locked(&self, app_state: &AppState) -> io::Result<()> {
         let path = history_file_path()?;
         let payload = PersistedClipboardHistory {
             version: 1,
             items: app_state.history_snapshot(),
             selected_index: app_state.selected_index(),
             used_items: app_state.used_items_snapshot(),
-            saved_items: Vec::new(), // v2では空、saved_groupsを使用
+            saved_items: Vec::new(),
             saved_groups: app_state
                 .saved_groups_snapshot()
                 .into_iter()
-                .map(|g| PersistedSavedGroup {
-                    name: g.name,
-                    items: g
+                .map(|group| PersistedSavedGroup {
+                    name: group.name,
+                    items: group
                         .items
                         .into_iter()
-                        .map(|i| PersistedSavedItem {
-                            title: i.title,
-                            content: i.content,
+                        .map(|item| PersistedSavedItem {
+                            title: item.title,
+                            content: item.content,
                         })
                         .collect(),
                 })

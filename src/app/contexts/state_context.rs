@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
-use crate::app::states::app_state::AppState;
-use crate::app::states::settings_state::SettingsState;
+use crate::app::features::clipboard::state::AppState;
+use crate::app::features::settings::state::SettingsState;
 
 // アプリ状態の実体を保持するコンテキスト。
 pub struct StateContext {

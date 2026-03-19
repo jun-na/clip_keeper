@@ -1,8 +1,12 @@
-use std::{fs, io, path::PathBuf};
+use std::{io, path::PathBuf};
+
+#[cfg(target_os = "macos")]
+use std::fs;
 
 #[cfg(not(target_os = "macos"))]
 use std::env;
 
+#[cfg(target_os = "macos")]
 const APP_DIR_NAME: &str = "ClipKeeper";
 
 pub fn data_file_path(file_name: &str) -> io::Result<PathBuf> {

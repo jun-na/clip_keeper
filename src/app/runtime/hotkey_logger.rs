@@ -5,21 +5,16 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// ホットキートリガーのログをファイルへ追記するロガー。
-/// ログファイルはアプリのデータディレクトリに `hotkey_log.txt` として保存される。
 pub struct HotkeyLogger {
     log_path: PathBuf,
     enabled: AtomicBool,
 }
 
 impl HotkeyLogger {
-    /// アプリのデータディレクトリを基準にログパスを決定して生成する。
     pub fn new() -> Self {
         Self::new_with_enabled(false)
     }
 
-    /// アプリのデータディレクトリを基準にログパスを決定して生成する。
-    /// `enabled` が false の場合、`log()` は何も書き込まない。
     pub fn new_with_enabled(enabled: bool) -> Self {
         let log_path = default_log_path().unwrap_or_else(|_| PathBuf::from("hotkey_log.txt"));
         Self {
@@ -28,31 +23,25 @@ impl HotkeyLogger {
         }
     }
 
-    /// ロガーの有効/無効を切り替える。
     #[allow(dead_code)]
     pub fn set_enabled(&self, enabled: bool) {
         self.enabled.store(enabled, Ordering::Relaxed);
     }
 
-    /// ログ出力を有効化する。
     #[allow(dead_code)]
     pub fn enable(&self) {
         self.set_enabled(true);
     }
 
-    /// ログ出力を無効化する。
     #[allow(dead_code)]
     pub fn disable(&self) {
         self.set_enabled(false);
     }
 
-    /// 現在ログ出力が有効かどうかを返す。
     pub fn is_enabled(&self) -> bool {
         self.enabled.load(Ordering::Relaxed)
     }
 
-    /// トリガー名を含む1行のログエントリを追記する。
-    /// ファイルが存在しない場合は新規作成する。書き込み失敗は静かに無視する。
     pub fn log(&self, trigger: &str) {
         if !self.is_enabled() {
             return;
@@ -70,11 +59,10 @@ impl HotkeyLogger {
     }
 }
 
-/// 現在の UTC 時刻を `YYYY-MM-DD HH:MM:SS UTC` 形式で返す。
 fn format_utc_now() -> String {
     let total_secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
+        .map(|duration| duration.as_secs())
         .unwrap_or(0);
 
     let s = total_secs % 60;
@@ -86,8 +74,6 @@ fn format_utc_now() -> String {
     format!("{year:04}-{month:02}-{day:02} {h:02}:{m:02}:{s:02} UTC")
 }
 
-/// Unix エポック起算の日数をグレゴリオ暦の (年, 月, 日) に変換する。
-/// 参考: Euclidean Affine Functions (Cassini algorithm)
 fn days_to_ymd(days: u64) -> (u64, u64, u64) {
     let z = days + 719468;
     let era = z / 146097;

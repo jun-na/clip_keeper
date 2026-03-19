@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use crate::app::contexts::state_context::StateContext;
-use crate::app::services::clipboard_service::ClipboardService;
-use crate::app::services::settings_service::SettingsService;
-use crate::app::services::ui_gateway::UiGateway;
+use crate::app::features::clipboard::service::ClipboardService;
+use crate::app::features::settings::service::SettingsService;
+use crate::app::runtime::ui_gateway::UiGateway;
 
 // サービスの定義と依存関係を保持するコンテキスト。
 pub struct ServiceContext {

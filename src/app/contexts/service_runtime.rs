@@ -1,6 +1,6 @@
 use crate::app::contexts::service_context::ServiceContext;
-use crate::app::services::monitor_runtime::MonitorRuntime;
-use crate::app::services::tray_runtime::TrayRuntime;
+use crate::app::runtime::monitor_runtime::MonitorRuntime;
+use crate::app::runtime::tray_runtime::TrayRuntime;
 
 // 実行中のサービス実体を保持するランタイム。
 pub struct ServiceRuntime {

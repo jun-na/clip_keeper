@@ -1,7 +1,5 @@
-// 永続化対象となる設定状態。
 #[derive(Debug, Clone)]
 pub struct SettingsState {
-    /// ホットキーモード: 0=Shift 2回押し, 1=Ctrl 2回押し, 2=修飾キー+ホットキー
     pub hotkey_mode: i32,
     pub hotkey_combo_ctrl_required: bool,
     pub hotkey_combo_shift_required: bool,

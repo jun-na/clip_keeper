@@ -4,16 +4,13 @@ use std::thread;
 use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
-use crate::app::services::ui_gateway::UiGateway;
+use crate::app::runtime::ui_gateway::UiGateway;
 
-// タスクトレイとメニュー操作を扱うサービス。
 pub struct TrayRuntime {
-    // TrayIcon は drop で消えるため保持が必要。
     _tray_icon: TrayIcon,
 }
 
 impl TrayRuntime {
-    /// タスクトレイを生成し、メニューイベント監視を開始する。
     pub fn new(ui_gateway: Arc<UiGateway>) -> Result<Self, Box<dyn std::error::Error>> {
         let tray_menu = Menu::new();
         let open_history_item = MenuItem::new("履歴を開く", true, None);
@@ -38,9 +35,7 @@ impl TrayRuntime {
         })
     }
 
-    /// アプリアイコン付きの TrayIcon を作成する。
     fn create_tray_icon(menu: &Menu) -> Result<TrayIcon, Box<dyn std::error::Error>> {
-        // ビルド時に生成した 32x32 RGBA アイコンデータを埋め込む
         let rgba = include_bytes!("../../../assets/tray-icon.rgba").to_vec();
 
         let icon = Icon::from_rgba(rgba, 32, 32)?;
@@ -63,14 +58,12 @@ impl TrayRuntime {
         Ok(tray_icon)
     }
 
-    /// タスクトレイメニューのイベントループをバックグラウンドで実行する。
     fn start_listener(
         open_history_id: MenuId,
         open_settings_id: MenuId,
         quit_id: MenuId,
         ui_gateway: Arc<UiGateway>,
     ) {
-        // メニューイベントを監視し、UiGateway 経由でUIへ操作を伝える。
         thread::spawn(move || {
             while let Ok(event) = MenuEvent::receiver().recv() {
                 if event.id == open_history_id {

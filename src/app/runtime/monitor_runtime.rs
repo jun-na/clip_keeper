@@ -5,28 +5,23 @@ use std::time::{Duration, Instant};
 use arboard::Clipboard;
 use rdev::{EventType, Key};
 
-use crate::app::services::clipboard_service::ClipboardService;
-use crate::app::services::detectors::DoubleTapDetector;
-use crate::app::services::hotkey_logger::HotkeyLogger;
+use crate::app::features::clipboard::service::ClipboardService;
+use crate::app::features::settings::service::SettingsService;
 #[cfg(target_os = "macos")]
-use crate::app::services::macos_hotkey_listener;
-use crate::app::services::settings_service::SettingsService;
-use crate::app::services::ui_gateway::UiGateway;
+use crate::app::platform::macos_hotkey_listener;
+use crate::app::runtime::detectors::DoubleTapDetector;
+use crate::app::runtime::hotkey_logger::HotkeyLogger;
+use crate::app::runtime::ui_gateway::UiGateway;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(120);
 
-// 監視ループ（クリップボード/ホットキー）を実行するランタイム。
 pub struct MonitorRuntime {
-    // クリップボード履歴を状態へ反映するサービス。
     clipboard_service: Arc<ClipboardService>,
-    // ホットキー設定を参照するサービス。
     settings_service: Arc<SettingsService>,
-    // UI表示更新を依頼するサービス。
     ui_gateway: Arc<UiGateway>,
 }
 
 impl MonitorRuntime {
-    /// 監視に必要なサービスを受け取って生成する。
     pub fn new(
         clipboard_service: Arc<ClipboardService>,
         settings_service: Arc<SettingsService>,
@@ -39,13 +34,11 @@ impl MonitorRuntime {
         }
     }
 
-    /// クリップボード監視スレッドとホットキー監視スレッドを開始する。
     pub fn start(&self) {
         self.start_clipboard_thread();
         self.start_hotkey_thread();
     }
 
-    /// クリップボードをポーリングし、変化があれば状態とUIを更新する。
     fn start_clipboard_thread(&self) {
         let clipboard_service = self.clipboard_service.clone();
         let ui_gateway = self.ui_gateway.clone();
@@ -70,63 +63,40 @@ impl MonitorRuntime {
         });
     }
 
-    /// グローバルホットキーを監視し、条件一致で履歴ウィンドウを表示する。
     fn start_hotkey_thread(&self) {
-        // Arc クローンでスレッドに所有権を移す
         let settings_service = self.settings_service.clone();
         let ui_gateway = self.ui_gateway.clone();
 
         thread::spawn(move || {
-            // HotkeyLogger はホットキースレッド専用・共有不要なのでここで生成する
             let logger = HotkeyLogger::new();
-            // Shift キーのダブルタップ間隔を計測する検出器
             let mut shift_double_tap = DoubleTapDetector::default();
-            // Ctrl キーのダブルタップ間隔を計測する検出器
             let mut ctrl_double_tap = DoubleTapDetector::default();
 
-            // 修飾キーの現在の押下状態（キーリピートによる多重検知を防ぐ）
             let mut ctrl_down = false;
             let mut shift_down = false;
-
-            // コンボキー（Ctrl+Shift+X など）の押下状態（同じく多重検知防止）
             let mut combo_key_down = false;
 
-            // キー押下／解放イベントを受け取り、モードに応じたトリガーへ変換する。
-            let handle_event = move |event_type: EventType| match event_type {
-                // ─── キー押下イベント ───────────────────────────────────────
+            let mut handle_event = move |event_type: EventType| match event_type {
                 EventType::KeyPress(key) => {
-                    // 毎回最新の設定を取得することで、実行中の設定変更にも追従する
                     let settings = settings_service.current_hotkey_settings();
 
                     match key {
-                        // ── Shift キー ──────────────────────────────────────
                         Key::ShiftLeft | Key::ShiftRight => {
-                            // コンボ判定用の押下状態のみ更新する。
-                            // ダブルタップ判定は KeyRelease 側で行う（キーリピート耐性のため）。
                             if !shift_down {
                                 shift_down = true;
                             }
                         }
-                        // ── Ctrl キー ───────────────────────────────────────
                         Key::ControlLeft | Key::ControlRight => {
-                            // コンボ判定用の押下状態のみ更新する。
-                            // ダブルタップ判定は KeyRelease 側で行う（キーリピート耐性のため）。
                             if !ctrl_down {
                                 ctrl_down = true;
                             }
                         }
-                        // ── コンボキー（設定されたアルファベット／数字キー）───
                         _ => {
-                            // モード 2（修飾キー+ホットキー）のみコンボ判定する
                             if settings.hotkey_mode == 2 && is_combo_key(key, &settings.combo_key) {
-                                // キーリピートによる多重起動を防ぐ
                                 if !combo_key_down {
                                     combo_key_down = true;
-                                    // Ctrl 必須設定が OFF、または現在 Ctrl が押されていれば OK
                                     let ctrl_ok = !settings.combo_ctrl_required || ctrl_down;
-                                    // Shift 必須設定が OFF、または現在 Shift が押されていれば OK
                                     let shift_ok = !settings.combo_shift_required || shift_down;
-                                    // 両条件を満たす場合に履歴ウィンドウを表示する
                                     if ctrl_ok && shift_ok {
                                         logger.log(&format!(
                                             "Combo key ({key:?}) ctrl:{ctrl_down} shift:{shift_down}"
@@ -138,13 +108,9 @@ impl MonitorRuntime {
                         }
                     }
                 }
-                // ─── キー解放イベント ───────────────────────────────────────
                 EventType::KeyRelease(key) => match key {
-                    // Shift が離されたら押下フラグをリセットする
                     Key::ShiftLeft | Key::ShiftRight => {
                         shift_down = false;
-                        // ダブルタップは release 間隔で判定する。
-                        // 押下イベント取りこぼし時も復帰しやすく、キーリピート誤検知も起きにくい。
                         let settings = settings_service.current_hotkey_settings();
                         if settings.hotkey_mode == 0
                             && shift_double_tap.register_tap(Instant::now())
@@ -153,10 +119,8 @@ impl MonitorRuntime {
                             ui_gateway.show_history_window();
                         }
                     }
-                    // Ctrl が離されたら押下フラグをリセットする
                     Key::ControlLeft | Key::ControlRight => {
                         ctrl_down = false;
-                        // Shift と同様に release 間隔で判定する。
                         let settings = settings_service.current_hotkey_settings();
                         if settings.hotkey_mode == 1 && ctrl_double_tap.register_tap(Instant::now())
                         {
@@ -164,7 +128,6 @@ impl MonitorRuntime {
                             ui_gateway.show_history_window();
                         }
                     }
-                    // コンボキーが離されたらそのフラグをリセットする
                     _ => {
                         let settings = settings_service.current_hotkey_settings();
                         if is_combo_key(key, &settings.combo_key) {
@@ -172,12 +135,9 @@ impl MonitorRuntime {
                         }
                     }
                 },
-                // キーボード以外のイベント（マウス等）は無視する
                 _ => {}
             };
 
-            // macOS では rdev の文字列変換処理が Ctrl 系イベントで AppKit/HIToolbox の
-            // キュー制約に触れて SIGTRAP するため、文字列化しない軽量リスナーを使う。
             #[cfg(target_os = "macos")]
             if let Err(error) = macos_hotkey_listener::listen(handle_event) {
                 eprintln!("global hotkey listener failed: {error:?}");
