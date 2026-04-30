@@ -1,13 +1,17 @@
 use crate::app::contexts::app_context::AppContext;
-use entrait::Impl;
+use crate::app::contexts::service_context::ServiceContext;
+use crate::app::contexts::state_context::StateContext;
 
 // 依存関係を1箇所で組み立てる Composition Root。
 pub struct CompositionRoot;
 
 impl CompositionRoot {
     /// アプリで必要な Context 群を組み立てる。
-    /// `Impl<AppContext>` を返し、DI の起点になる。
-    pub fn build() -> Result<Impl<AppContext>, Box<dyn std::error::Error>> {
-        Ok(Impl::new(AppContext::new()?))
+    pub fn build() -> Result<AppContext, Box<dyn std::error::Error>> {
+        // 共有状態を先に作り、サービス群へ注入する。
+        let state_context = StateContext::new();
+        let service_context = ServiceContext::new(state_context.clone())?;
+
+        Ok(AppContext::new(state_context, service_context))
     }
 }

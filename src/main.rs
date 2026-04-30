@@ -3,22 +3,15 @@
 // 依存解決・Window生成・サービス起動・UIイベントループ開始までを担当する。
 
 #[cfg(target_os = "macos")]
-use objc2::MainThreadMarker;
-#[cfg(target_os = "macos")]
-use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicyAccessory};
 use slint::ComponentHandle;
 use std::error::Error;
-use std::sync::Arc;
 
 slint::include_modules!();
 
 mod app;
 
-use crate::app::services::clipboard_service::ClipboardServiceApi;
-use crate::app::services::settings_service::SettingsServiceApi;
-
 /// アプリ起動シーケンスを実行する。
-/// 正常終了時は `Ok(())` を返し、UI と常駐サービスを起動する。
 fn main() -> Result<(), Box<dyn Error>> {
     // DragWindow / Focusイベントを使うため winit backend を明示選択する。
     slint::BackendSelector::new()
@@ -29,13 +22,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     configure_macos_activation_policy();
 
     // 依存関係（状態/サービス定義）を組み立てる。
-    let app = Arc::new(app::contexts::composition_root::CompositionRoot::build()?);
+    let app = app::contexts::composition_root::CompositionRoot::build()?;
     // 前回終了時の履歴をロードする（読み込み失敗は継続可能）。
-    if let Err(error) = app.load_history_from_disk() {
+    if let Err(error) = app
+        .service_context()
+        .clipboard_service()
+        .load_history_from_disk()
+    {
         eprintln!("failed to load clipboard history: {error}");
     }
     // 前回終了時の設定をロードする（読み込み失敗は継続可能）。
-    if let Err(error) = app.load_from_disk() {
+    if let Err(error) = app.service_context().settings_service().load_from_disk() {
         eprintln!("failed to load settings: {error}");
     }
 
@@ -54,7 +51,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // 実行系サービス（トレイ/監視）を起動。
     let service_runtime = app::contexts::service_runtime::ServiceRuntime::new(
-        app.clone(),
+        app.service_context(),
         &history_window,
         &settings_window,
         &save_dialog_window,
@@ -68,12 +65,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 #[cfg(target_os = "macos")]
-/// macOS のアクティベーションポリシーを常駐向けに設定する。
-/// Dock 表示を抑え、アクセサリ扱いでアプリを動かす。
 fn configure_macos_activation_policy() {
     unsafe {
-        let mtm = MainThreadMarker::new_unchecked();
-        let app = NSApplication::sharedApplication(mtm);
-        let _ = app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+        let app = NSApp();
+        let _ = app.setActivationPolicy_(NSApplicationActivationPolicyAccessory);
     }
 }
