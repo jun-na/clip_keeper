@@ -2,19 +2,19 @@ use std::ffi::c_void;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
-use cocoa::base::{id, nil};
-use cocoa::foundation::NSAutoreleasePool;
+use objc2::rc::autoreleasepool;
 use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, EventField};
-use rdev::EventType;
 use rdev::Key;
 
-type CFMachPortRef = *const c_void;
-type CFRunLoopMode = id;
-type CFRunLoopRef = id;
-type CFRunLoopSourceRef = id;
+use crate::app::services::hotkey_service::HotkeyEvent;
+
+type CFMachPortRef = *mut c_void;
+type CFRunLoopMode = *const c_void;
+type CFRunLoopRef = *mut c_void;
+type CFRunLoopSourceRef = *mut c_void;
 type CGEventRef = CGEvent;
 type CGEventTapPlacement = u32;
-type CGEventTapProxy = id;
+type CGEventTapProxy = *mut c_void;
 type CGEventMask = u64;
 
 const KCG_HEAD_INSERT_EVENT_TAP: CGEventTapPlacement = 0;
@@ -22,7 +22,7 @@ const KEY_EVENT_MASK: CGEventMask = (1 << CGEventType::KeyDown as u64)
     | (1 << CGEventType::KeyUp as u64)
     | (1 << CGEventType::FlagsChanged as u64);
 
-static GLOBAL_CALLBACK: Mutex<Option<Box<dyn FnMut(EventType) + Send>>> = Mutex::new(None);
+static GLOBAL_CALLBACK: Mutex<Option<Box<dyn FnMut(HotkeyEvent) + Send>>> = Mutex::new(None);
 static LAST_FLAGS: AtomicU64 = AtomicU64::new(CGEventFlags::CGEventFlagNull.bits());
 
 #[derive(Debug)]
@@ -39,10 +39,10 @@ extern "C" {
         options: CGEventTapOption,
         events_of_interest: CGEventMask,
         callback: EventTapCallback,
-        user_info: id,
+        user_info: *const c_void,
     ) -> CFMachPortRef;
     fn CFMachPortCreateRunLoopSource(
-        allocator: id,
+        allocator: *const c_void,
         tap: CFMachPortRef,
         order: isize,
     ) -> CFRunLoopSourceRef;
@@ -66,6 +66,8 @@ type EventTapCallback = unsafe extern "C" fn(
     user_info: *mut c_void,
 ) -> CGEventRef;
 
+/// 生の CGEvent を HotkeyEvent に流す。
+/// 変換できた時だけ callback を呼び、イベント自体は返す。
 unsafe extern "C" fn raw_callback(
     _proxy: CGEventTapProxy,
     event_type: CGEventType,
@@ -83,9 +85,11 @@ unsafe extern "C" fn raw_callback(
     cg_event
 }
 
+/// macOS の event tap でホットキー監視を開始する。
+/// 初期化失敗時は `MacHotkeyListenError` を返す。
 pub fn listen<T>(callback: T) -> Result<(), MacHotkeyListenError>
 where
-    T: FnMut(EventType) + Send + 'static,
+    T: FnMut(HotkeyEvent) + Send + 'static,
 {
     unsafe {
         let mut global_callback = GLOBAL_CALLBACK
@@ -95,55 +99,61 @@ where
         drop(global_callback);
         LAST_FLAGS.store(CGEventFlags::CGEventFlagNull.bits(), Ordering::Relaxed);
 
-        let _pool = NSAutoreleasePool::new(nil);
-        let tap = CGEventTapCreate(
-            CGEventTapLocation::HID,
-            KCG_HEAD_INSERT_EVENT_TAP,
-            CGEventTapOption::ListenOnly,
-            KEY_EVENT_MASK,
-            raw_callback,
-            nil,
-        );
-        if tap.is_null() {
-            return Err(MacHotkeyListenError::EventTapError);
-        }
+        autoreleasepool(|_| {
+            let tap = CGEventTapCreate(
+                CGEventTapLocation::Session,
+                KCG_HEAD_INSERT_EVENT_TAP,
+                CGEventTapOption::ListenOnly,
+                KEY_EVENT_MASK,
+                raw_callback,
+                std::ptr::null(),
+            );
+            if tap.is_null() {
+                return Err(MacHotkeyListenError::EventTapError);
+            }
 
-        let run_loop_source = CFMachPortCreateRunLoopSource(nil, tap, 0);
-        if run_loop_source.is_null() {
-            return Err(MacHotkeyListenError::LoopSourceError);
-        }
+            let run_loop_source = CFMachPortCreateRunLoopSource(std::ptr::null(), tap, 0);
+            if run_loop_source.is_null() {
+                return Err(MacHotkeyListenError::LoopSourceError);
+            }
 
-        let current_loop = CFRunLoopGetCurrent();
-        CFRunLoopAddSource(current_loop, run_loop_source, kCFRunLoopCommonModes);
-        CGEventTapEnable(tap, true);
-        CFRunLoopRun();
+            let current_loop = CFRunLoopGetCurrent();
+            CFRunLoopAddSource(current_loop, run_loop_source, kCFRunLoopCommonModes);
+            CGEventTapEnable(tap, true);
+            CFRunLoopRun();
+            Ok(())
+        })?;
     }
 
     Ok(())
 }
 
-unsafe fn convert_event(event_type: CGEventType, cg_event: &CGEvent) -> Option<EventType> {
+/// CGEvent を内部ホットキーイベントへ変換する。
+/// 押下/解放以外は `None` を返す。
+unsafe fn convert_event(event_type: CGEventType, cg_event: &CGEvent) -> Option<HotkeyEvent> {
     let code = cg_event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE) as u16;
     let key = key_from_code(code);
 
     match event_type {
-        CGEventType::KeyDown => Some(EventType::KeyPress(key)),
-        CGEventType::KeyUp => Some(EventType::KeyRelease(key)),
+        CGEventType::KeyDown => Some(HotkeyEvent::KeyPress(key)),
+        CGEventType::KeyUp => Some(HotkeyEvent::KeyRelease(key)),
         CGEventType::FlagsChanged => {
             let current_flags = cg_event.get_flags();
             let current_bits = current_flags.bits();
             let previous_bits = LAST_FLAGS.swap(current_bits, Ordering::Relaxed);
 
             if current_bits < previous_bits {
-                Some(EventType::KeyRelease(key))
+                Some(HotkeyEvent::KeyRelease(key))
             } else {
-                Some(EventType::KeyPress(key))
+                Some(HotkeyEvent::KeyPress(key))
             }
         }
         _ => None,
     }
 }
 
+/// キーコードを `rdev::Key` に変換する。
+/// 未対応コードは `Unknown` にする。
 fn key_from_code(code: u16) -> Key {
     match code {
         0 => Key::KeyA,

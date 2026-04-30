@@ -9,10 +9,14 @@ use std::env;
 #[cfg(target_os = "macos")]
 const APP_DIR_NAME: &str = "ClipKeeper";
 
+/// データファイルの絶対パスを組み立てる。
+/// 結果はアプリ用ディレクトリ配下の `PathBuf` を返す。
 pub fn data_file_path(file_name: &str) -> io::Result<PathBuf> {
     Ok(app_data_dir()?.join(file_name))
 }
 
+/// アプリのデータ保存先ディレクトリを取得する。
+/// macOS は App Support 配下、その他は実行ファイル隣接を返す。
 pub fn app_data_dir() -> io::Result<PathBuf> {
     #[cfg(target_os = "macos")]
     {

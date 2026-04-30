@@ -7,6 +7,8 @@ pub struct SettingsState {
 }
 
 impl Default for SettingsState {
+    /// 設定状態の既定値を生成する。
+    /// ホットキー関連の初期値をまとめて返す。
     fn default() -> Self {
         Self {
             hotkey_mode: 0,

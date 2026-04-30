@@ -13,6 +13,7 @@ pub struct StateContext {
 
 impl StateContext {
     /// 初期状態を保持した StateContext を生成する。
+    /// `Arc<Self>` を返し、共有状態の起点になる。
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
             app_state: Arc::new(Mutex::new(AppState::new())),
