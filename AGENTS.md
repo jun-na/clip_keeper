@@ -1,53 +1,51 @@
-# AI指示ガイドライン - 依存注入とコンテキスト設計パターン
+# AI指示ガイドライン - entraitと共有状態
 
-## AIへの指示テンプレート
+## 設計
 
-新しいプロジェクトでこのパターンを使う場合、AIに以下を指示してください：
+- `App`：共有状態と外部依存を保持するアプリの依存コンテナ
+- `AppState`：履歴・設定・ホットキー判定・ログの有効状態・画面の弱参照を中央管理。変更可能な状態は `Arc<Mutex<T>>` で保護
+- `Application = entrait::Impl<App>`：entraitが生成したサービスtraitの実装
+- `app::build()`：Composition Root。共有状態の生成・復元と実行系の組み立てを集約
+- `ApplicationRuntime`：Appの外側で `Arc<Impl<App>>` とMediatorを保持する実行系。MediatorがControllerを保持
 
-> このプロジェクトでは、以下の設計パターンを採用しています：
->
-> 1. **AppContext**: StateContextとServiceContextを統合するコンテナ
-> 2. **StateContext**: すべてのアプリケーション状態を中央管理（`Arc<Mutex<T>>`でラップ）
-> 3. **ServiceContext**: ビジネスロジックを実装するサービスを管理
-> 4. **Composition Root**: DIコンテナとして、すべてのコンテキストとサービスを組み立てる
-> 5. **依存注入**: 各Serviceはコンストラクタを通じて必要な依存（StateやService）を受け取る
->
-> 新しいServiceやStateを追加する際は、このパターンに従い、Composition Rootで依存を解決してください。
+サービスは状態を持たない関数として `services/` に配置。モジュールの `#[entrait::entrait(pub ServiceName)]` でtraitを生成し、依存は引数のtrait境界で宣言する。
 
 ## 初期化順序
 
-1. StateContext を生成（すべての状態を先に用意）
-2. 依存関係のないServiceから順に生成（下流から上流へ）
-3. ServiceContext に集約（すべてのServiceをまとめる）
-4. AppContext で統合（StateContextとServiceContextを束ねる）
+1. AppStateを生成し、Appに共有状態を保持
+2. `Arc<Impl<App>>` を生成
+3. 同じ実装で履歴・設定を復元。読み込み失敗時はエラーを記録して起動を継続
+4. Controllerへ実装を注入し、Mediator・ApplicationRuntimeを組み立て
+5. UiServiceで画面を生成・接続し、TrayServiceでトレイを生成し、MonitorRuntimeで監視を開始。ServiceRuntimeで各セッションを保持
 
 ## 実装例
 
 ```rust
-// コンストラクタインジェクション
-pub struct MyService {
-    state_context: Arc<StateContext>,
-    other_service: Arc<OtherService>,
-}
+#[entrait::entrait(pub HistoryService)]
+mod operations {
+    use crate::app::AccessState;
 
-impl MyService {
-    pub fn new(state_context: Arc<StateContext>, other_service: Arc<OtherService>) -> Self {
-        Self { state_context, other_service }
+    pub fn selected_index(deps: &impl AccessState) -> i32 {
+        deps.state()
+            .clipboard_state
+            .lock()
+            .expect("app state lock poisoned")
+            .selected_index()
     }
-}
-
-// Composition Root
-pub fn create_app_context() -> Arc<AppContext> {
-    let state_context = Arc::new(StateContext::new());
-    let service_a = Arc::new(ServiceA::new(state_context.clone()));
-    let service_b = Arc::new(ServiceB::new(state_context.clone(), service_a.clone()));
-    let service_context = Arc::new(ServiceContext { service_a, service_b });
-    Arc::new(AppContext { state_context, service_context })
 }
 ```
 
 ## 設計の契約
 
-- 状態はStateContext経由でのみアクセス
-- サービス間の依存はServiceContext経由で解決
-- UI層はAppContextのみに依存
+- 状態は `AccessState::state()` 経由で取得するAppStateに集約
+- サービスとControllerは必要な依存をtrait境界で宣言
+- ControllerはRequestの振り分けとサービスの実行順序を担当し、Slintや共有状態を直接操作しない
+- UiServiceは画面生成・登録・表示・非表示・更新・フォーカス・表示モデルへの変換・入力コールバック接続を担当。画面の弱参照はAppStateに保持し、画面操作はUIスレッド上で実行
+- UiService・TrayRuntime・MonitorRuntimeは注入されたRequestSenderにRequestを渡す。入力側からApplicationRuntimeやMediatorへの具体型依存を持たせない
+- runtimeはサービスの起動とUiSession・TraySession・TrayRuntime・MonitorRuntimeの保持を担当。Window・トレイを直接生成・操作せず、ログ出力は実装しない。監視の周期・スレッド・OSリスナー・トレイイベント待ち・Requestへの入力変換はruntimeで管理し、履歴更新やホットキー判定はサービスへ委譲する
+- ログの有効状態はAppState、出力先はAppに保持し、LoggingServiceからAccessState・AccessLogPath経由で取得する
+- ステートレスなサービスのインスタンスやServiceContextを追加しない
+- 新しい共有状態・外部依存はAppと `app::build()` で組み立てる
+- ApplicationRuntimeはMediatorに転送するRequestSenderをUiService・TrayRuntime・MonitorRuntimeへ注入
+- AppからController・Mediator・ApplicationRuntimeへの強参照を持たせない
+- `contexts/` は設けず、共有状態は `state.rs`、実行系は `runtime/` に配置

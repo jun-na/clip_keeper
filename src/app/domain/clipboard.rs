@@ -1,9 +1,5 @@
 use std::collections::{BTreeMap, HashSet, VecDeque};
 
-use slint::{ModelRc, SharedString, VecModel};
-
-use crate::{HistoryEntry, SavedEntry};
-
 const MAX_CLIPBOARD_ITEMS: usize = 1000;
 const FIXED_GROUP_COUNT: usize = 8;
 const PRIMARY_GROUP_NAME: &str = "グループ1";
@@ -24,7 +20,13 @@ fn create_fixed_groups() -> (BTreeMap<String, Vec<SavedItem>>, Vec<String>) {
     (saved_groups, group_order)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryItem {
+    pub content: String,
+    pub used: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavedItem {
     pub title: String,
     pub content: String,
@@ -37,7 +39,7 @@ pub struct SavedGroup {
 }
 
 #[derive(Debug)]
-pub struct AppState {
+pub struct ClipboardState {
     history: VecDeque<String>,
     used_items: HashSet<String>,
     last_clipboard_text: Option<String>,
@@ -48,7 +50,7 @@ pub struct AppState {
     active_group: String,
 }
 
-impl AppState {
+impl ClipboardState {
     pub fn new() -> Self {
         let (saved_groups, group_order) = create_fixed_groups();
         Self {
@@ -85,26 +87,14 @@ impl AppState {
         true
     }
 
-    pub fn history_model(&self) -> ModelRc<HistoryEntry> {
-        let rows: Vec<HistoryEntry> = self
-            .history
+    pub fn history_items(&self) -> Vec<HistoryItem> {
+        self.history
             .iter()
-            .map(|item| {
-                let normalized = item.replace(['\r', '\n'], " ");
-                let display = if normalized.chars().count() > 120 {
-                    let truncated: String = normalized.chars().take(120).collect();
-                    format!("{truncated}…")
-                } else {
-                    normalized
-                };
-                HistoryEntry {
-                    text: SharedString::from(display),
-                    used: self.used_items.contains(item),
-                }
+            .map(|item| HistoryItem {
+                content: item.clone(),
+                used: self.used_items.contains(item),
             })
-            .collect();
-
-        ModelRc::new(VecModel::from(rows))
+            .collect()
     }
 
     pub fn history_snapshot(&self) -> Vec<String> {
@@ -270,29 +260,11 @@ impl AppState {
         self.active_group = restored_active_group.unwrap_or_else(|| PRIMARY_GROUP_NAME.to_string());
     }
 
-    pub fn saved_items_model(&self) -> ModelRc<SavedEntry> {
-        let items = self
-            .saved_groups
+    pub fn saved_items(&self) -> Vec<SavedItem> {
+        self.saved_groups
             .get(&self.active_group)
-            .map(|items| items.as_slice())
-            .unwrap_or(&[]);
-        let rows: Vec<SavedEntry> = items
-            .iter()
-            .map(|item| SavedEntry {
-                title: SharedString::from(item.title.as_str()),
-                content: SharedString::from(item.content.as_str()),
-            })
-            .collect();
-        ModelRc::new(VecModel::from(rows))
-    }
-
-    pub fn group_names_model(&self) -> ModelRc<SharedString> {
-        let names: Vec<SharedString> = self
-            .group_order
-            .iter()
-            .map(|name| SharedString::from(name.as_str()))
-            .collect();
-        ModelRc::new(VecModel::from(names))
+            .cloned()
+            .unwrap_or_default()
     }
 
     pub fn active_group_index(&self) -> i32 {
@@ -325,5 +297,49 @@ impl AppState {
             }
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn history_snapshot_keeps_content_order_and_used_status() {
+        let mut state = ClipboardState::new();
+        assert!(state.push_clipboard("first\nline".into()));
+        assert!(state.push_clipboard("second".into()));
+        assert!(!state.push_clipboard("first\nline".into()));
+        state.mark_as_used("first\nline");
+        assert_eq!(
+            state.history_items(),
+            vec![
+                HistoryItem {
+                    content: "second".into(),
+                    used: false
+                },
+                HistoryItem {
+                    content: "first\nline".into(),
+                    used: true
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn saved_snapshot_follows_active_group_and_does_not_mutate_state() {
+        let mut state = ClipboardState::new();
+        state.add_saved_item("グループ2", "title".into(), "content".into());
+        assert!(state.saved_items().is_empty());
+        state.set_active_group("グループ2".into());
+        let mut snapshot = state.saved_items();
+        snapshot[0].content = "modified".into();
+        assert_eq!(
+            state.saved_items(),
+            vec![SavedItem {
+                title: "title".into(),
+                content: "content".into(),
+            }]
+        );
     }
 }

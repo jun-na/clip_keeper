@@ -1,20 +1,12 @@
-use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use std::{fs, io, path::PathBuf};
 
 use rdev::{simulate, EventType, Key};
 use serde::{Deserialize, Serialize};
-use slint::{ModelRc, SharedString};
 
-use crate::app::contexts::state_context::StateContext;
-use crate::app::features::clipboard::state::{AppState, SavedGroup, SavedItem};
-use crate::{HistoryEntry, SavedEntry};
-
-// クリップボード履歴に関する状態読み書きを集約するサービス。
-pub struct ClipboardService {
-    state_context: Arc<StateContext>,
-}
+use crate::app::domain::clipboard::{ClipboardState, HistoryItem, SavedGroup, SavedItem};
+use crate::app::AccessState;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct PersistedSavedItem {
@@ -44,20 +36,20 @@ struct PersistedClipboardHistory {
     active_group: Option<String>,
 }
 
-impl ClipboardService {
-    pub fn new(state_context: Arc<StateContext>) -> Self {
-        Self { state_context }
-    }
+// 公開関数からサービスtraitと Impl<App> の実装を生成。
+#[entrait::entrait(pub ClipboardService)]
+mod operations {
+    use super::*;
 
-    pub fn push_clipboard_text(&self, text: String) -> bool {
-        let mut app_state = self
-            .state_context
-            .app_state
+    pub fn push_clipboard_text(deps: &impl AccessState, text: String) -> bool {
+        let mut app_state = deps
+            .state()
+            .clipboard_state
             .lock()
             .expect("app state lock poisoned");
         let changed = app_state.push_clipboard(text);
         if changed {
-            if let Err(error) = self.save_history_to_disk_locked(&app_state) {
+            if let Err(error) = save_history_to_disk_locked(&app_state) {
                 eprintln!("failed to save clipboard history: {error}");
             }
         }
@@ -65,16 +57,16 @@ impl ClipboardService {
         changed
     }
 
-    pub fn history_model(&self) -> ModelRc<HistoryEntry> {
-        let app_state = self
-            .state_context
-            .app_state
+    pub fn history_items(deps: &impl AccessState) -> Vec<HistoryItem> {
+        let app_state = deps
+            .state()
+            .clipboard_state
             .lock()
             .expect("app state lock poisoned");
-        app_state.history_model()
+        app_state.history_items()
     }
 
-    pub fn load_history_from_disk(&self) -> io::Result<()> {
+    pub fn load_history_from_disk(deps: &impl AccessState) -> io::Result<()> {
         let path = history_file_path()?;
         if !path.exists() {
             return Ok(());
@@ -89,9 +81,9 @@ impl ClipboardService {
                 )
             })?;
 
-        let mut app_state = self
-            .state_context
-            .app_state
+        let mut app_state = deps
+            .state()
+            .clipboard_state
             .lock()
             .expect("app state lock poisoned");
         app_state.restore_history(persisted.items);
@@ -136,15 +128,15 @@ impl ClipboardService {
         Ok(())
     }
 
-    pub fn prepare_paste_from_history_index(&self, index: i32) -> bool {
+    pub fn prepare_paste_from_history_index(deps: &impl AccessState, index: i32) -> bool {
         if index < 0 {
             return false;
         }
 
         let text = {
-            let mut app_state = self
-                .state_context
-                .app_state
+            let mut app_state = deps
+                .state()
+                .clipboard_state
                 .lock()
                 .expect("app state lock poisoned");
             let Some(text) = app_state.history_item_at(index as usize) else {
@@ -153,7 +145,7 @@ impl ClipboardService {
             app_state.mark_as_used(&text);
             app_state.set_pending_paste(text.clone());
             app_state.set_selected_index(index);
-            if let Err(error) = self.save_history_to_disk_locked(&app_state) {
+            if let Err(error) = save_history_to_disk_locked(&app_state) {
                 eprintln!("failed to save selected index: {error}");
             }
             text
@@ -166,11 +158,11 @@ impl ClipboardService {
         true
     }
 
-    pub fn trigger_pending_paste(&self) {
+    pub fn trigger_pending_paste(deps: &impl AccessState) {
         let pending = {
-            let mut app_state = self
-                .state_context
-                .app_state
+            let mut app_state = deps
+                .state()
+                .clipboard_state
                 .lock()
                 .expect("app state lock poisoned");
             app_state.take_pending_paste()
@@ -188,35 +180,35 @@ impl ClipboardService {
         });
     }
 
-    pub fn selected_index(&self) -> i32 {
-        let app_state = self
-            .state_context
-            .app_state
+    pub fn selected_index(deps: &impl AccessState) -> i32 {
+        let app_state = deps
+            .state()
+            .clipboard_state
             .lock()
             .expect("app state lock poisoned");
         app_state.selected_index()
     }
 
-    pub fn get_history_item_content(&self, index: i32) -> Option<String> {
+    pub fn get_history_item_content(deps: &impl AccessState, index: i32) -> Option<String> {
         if index < 0 {
             return None;
         }
-        let app_state = self
-            .state_context
-            .app_state
+        let app_state = deps
+            .state()
+            .clipboard_state
             .lock()
             .expect("app state lock poisoned");
         app_state.history_item_at(index as usize)
     }
 
-    pub fn prepare_bulk_paste(&self, up_to_index: i32, separator: &str) -> bool {
+    pub fn prepare_bulk_paste(deps: &impl AccessState, up_to_index: i32, separator: &str) -> bool {
         if up_to_index < 0 {
             return false;
         }
         let joined = {
-            let mut app_state = self
-                .state_context
-                .app_state
+            let mut app_state = deps
+                .state()
+                .clipboard_state
                 .lock()
                 .expect("app state lock poisoned");
             let items = app_state.history_items_up_to(up_to_index as usize);
@@ -236,90 +228,81 @@ impl ClipboardService {
         true
     }
 
-    pub fn add_saved_item(&self, group: &str, title: String, content: String) {
-        let mut app_state = self
-            .state_context
-            .app_state
+    pub fn add_saved_item(deps: &impl AccessState, group: &str, title: String, content: String) {
+        let mut app_state = deps
+            .state()
+            .clipboard_state
             .lock()
             .expect("app state lock poisoned");
         app_state.add_saved_item(group, title, content);
-        if let Err(error) = self.save_history_to_disk_locked(&app_state) {
+        if let Err(error) = save_history_to_disk_locked(&app_state) {
             eprintln!("failed to save after adding saved item: {error}");
         }
     }
 
-    pub fn remove_saved_item(&self, index: i32) {
+    pub fn remove_saved_item(deps: &impl AccessState, index: i32) {
         if index < 0 {
             return;
         }
-        let mut app_state = self
-            .state_context
-            .app_state
+        let mut app_state = deps
+            .state()
+            .clipboard_state
             .lock()
             .expect("app state lock poisoned");
         if app_state.remove_saved_item(index as usize) {
-            if let Err(error) = self.save_history_to_disk_locked(&app_state) {
+            if let Err(error) = save_history_to_disk_locked(&app_state) {
                 eprintln!("failed to save after removing saved item: {error}");
             }
         }
     }
 
-    pub fn saved_items_model(&self) -> ModelRc<SavedEntry> {
-        let app_state = self
-            .state_context
-            .app_state
+    pub fn saved_items(deps: &impl AccessState) -> Vec<SavedItem> {
+        let app_state = deps
+            .state()
+            .clipboard_state
             .lock()
             .expect("app state lock poisoned");
-        app_state.saved_items_model()
+        app_state.saved_items()
     }
 
-    pub fn group_names_model(&self) -> ModelRc<SharedString> {
-        let app_state = self
-            .state_context
-            .app_state
-            .lock()
-            .expect("app state lock poisoned");
-        app_state.group_names_model()
-    }
-
-    pub fn group_names(&self) -> Vec<String> {
-        let app_state = self
-            .state_context
-            .app_state
+    pub fn group_names(deps: &impl AccessState) -> Vec<String> {
+        let app_state = deps
+            .state()
+            .clipboard_state
             .lock()
             .expect("app state lock poisoned");
         app_state.group_names()
     }
 
-    pub fn active_group_index(&self) -> i32 {
-        let app_state = self
-            .state_context
-            .app_state
+    pub fn active_group_index(deps: &impl AccessState) -> i32 {
+        let app_state = deps
+            .state()
+            .clipboard_state
             .lock()
             .expect("app state lock poisoned");
         app_state.active_group_index()
     }
 
-    pub fn set_active_group(&self, group: String) {
-        let mut app_state = self
-            .state_context
-            .app_state
+    pub fn set_active_group(deps: &impl AccessState, group: String) {
+        let mut app_state = deps
+            .state()
+            .clipboard_state
             .lock()
             .expect("app state lock poisoned");
         app_state.set_active_group(group);
-        if let Err(error) = self.save_history_to_disk_locked(&app_state) {
+        if let Err(error) = save_history_to_disk_locked(&app_state) {
             eprintln!("failed to save active group: {error}");
         }
     }
 
-    pub fn prepare_paste_from_saved_index(&self, index: i32) -> bool {
+    pub fn prepare_paste_from_saved_index(deps: &impl AccessState, index: i32) -> bool {
         if index < 0 {
             return false;
         }
         let text = {
-            let mut app_state = self
-                .state_context
-                .app_state
+            let mut app_state = deps
+                .state()
+                .clipboard_state
                 .lock()
                 .expect("app state lock poisoned");
             let Some(text) = app_state.saved_item_content_at(index as usize) else {
@@ -334,29 +317,29 @@ impl ClipboardService {
         true
     }
 
-    pub fn move_history_to_front(&self, index: i32) {
+    pub fn move_history_to_front(deps: &impl AccessState, index: i32) {
         if index <= 0 {
             return;
         }
-        let mut app_state = self
-            .state_context
-            .app_state
+        let mut app_state = deps
+            .state()
+            .clipboard_state
             .lock()
             .expect("app state lock poisoned");
         if app_state.move_to_front(index as usize) {
-            if let Err(error) = self.save_history_to_disk_locked(&app_state) {
+            if let Err(error) = save_history_to_disk_locked(&app_state) {
                 eprintln!("failed to save after moving to front: {error}");
             }
         }
     }
 
-    pub fn get_saved_item(&self, index: i32) -> Option<(String, String)> {
+    pub fn get_saved_item(deps: &impl AccessState, index: i32) -> Option<(String, String)> {
         if index < 0 {
             return None;
         }
-        let app_state = self
-            .state_context
-            .app_state
+        let app_state = deps
+            .state()
+            .clipboard_state
             .lock()
             .expect("app state lock poisoned");
         app_state
@@ -364,52 +347,52 @@ impl ClipboardService {
             .map(|item| (item.title.clone(), item.content.clone()))
     }
 
-    pub fn update_saved_item(&self, index: i32, title: String, content: String) {
+    pub fn update_saved_item(deps: &impl AccessState, index: i32, title: String, content: String) {
         if index < 0 {
             return;
         }
-        let mut app_state = self
-            .state_context
-            .app_state
+        let mut app_state = deps
+            .state()
+            .clipboard_state
             .lock()
             .expect("app state lock poisoned");
         if app_state.update_saved_item(index as usize, title, content) {
-            if let Err(error) = self.save_history_to_disk_locked(&app_state) {
+            if let Err(error) = save_history_to_disk_locked(&app_state) {
                 eprintln!("failed to save after updating saved item: {error}");
             }
         }
     }
+}
 
-    fn save_history_to_disk_locked(&self, app_state: &AppState) -> io::Result<()> {
-        let path = history_file_path()?;
-        let payload = PersistedClipboardHistory {
-            version: 1,
-            items: app_state.history_snapshot(),
-            selected_index: app_state.selected_index(),
-            used_items: app_state.used_items_snapshot(),
-            saved_items: Vec::new(),
-            saved_groups: app_state
-                .saved_groups_snapshot()
-                .into_iter()
-                .map(|group| PersistedSavedGroup {
-                    name: group.name,
-                    items: group
-                        .items
-                        .into_iter()
-                        .map(|item| PersistedSavedItem {
-                            title: item.title,
-                            content: item.content,
-                        })
-                        .collect(),
-                })
-                .collect(),
-            active_group: Some(app_state.active_group().to_string()),
-        };
-        let json = serde_json::to_string_pretty(&payload)
-            .map_err(|err| io::Error::other(format!("serialize error: {err}")))?;
-        fs::write(path, json)?;
-        Ok(())
-    }
+fn save_history_to_disk_locked(app_state: &ClipboardState) -> io::Result<()> {
+    let path = history_file_path()?;
+    let payload = PersistedClipboardHistory {
+        version: 1,
+        items: app_state.history_snapshot(),
+        selected_index: app_state.selected_index(),
+        used_items: app_state.used_items_snapshot(),
+        saved_items: Vec::new(),
+        saved_groups: app_state
+            .saved_groups_snapshot()
+            .into_iter()
+            .map(|group| PersistedSavedGroup {
+                name: group.name,
+                items: group
+                    .items
+                    .into_iter()
+                    .map(|item| PersistedSavedItem {
+                        title: item.title,
+                        content: item.content,
+                    })
+                    .collect(),
+            })
+            .collect(),
+        active_group: Some(app_state.active_group().to_string()),
+    };
+    let json = serde_json::to_string_pretty(&payload)
+        .map_err(|err| io::Error::other(format!("serialize error: {err}")))?;
+    fs::write(path, json)?;
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
