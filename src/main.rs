@@ -3,7 +3,9 @@
 // 依存解決・サービス起動・UIイベントループ開始までを担当する。
 
 #[cfg(target_os = "macos")]
-use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicyAccessory};
+use objc2::MainThreadMarker;
+#[cfg(target_os = "macos")]
+use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
 use std::error::Error;
 
 slint::include_modules!();
@@ -34,8 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 #[cfg(target_os = "macos")]
 fn configure_macos_activation_policy() {
-    unsafe {
-        let app = NSApp();
-        let _ = app.setActivationPolicy_(NSApplicationActivationPolicyAccessory);
-    }
+    let main_thread = MainThreadMarker::new().expect("application must start on the main thread");
+    let app = NSApplication::sharedApplication(main_thread);
+    let _ = app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
 }

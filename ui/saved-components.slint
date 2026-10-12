@@ -11,7 +11,7 @@ export component SavedItemsTab inherits Rectangle {
     in-out property <int> saved-ctx-target-index: -1;
     in-out property <bool> saved-ctx-visible: false;
     in-out property <int> saved-ctx-selected: 0;
-    in-out property <length> scroll-offset-y <=> saved-scroll.viewport-y;
+    in-out property <length> scroll-offset-y <=> saved-scroll.content-y;
     out property <length> scroll-visible-height: saved-scroll.visible-height;
 
     callback request-switch-group(int);

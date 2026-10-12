@@ -9,7 +9,7 @@ export component HistoryItemsTab inherits Rectangle {
     in-out property <int> ctx-target-index: -1;
     in-out property <bool> ctx-visible: false;
     in-out property <int> ctx-selected: 0;
-    in-out property <length> scroll-offset-y <=> history-scroll.viewport-y;
+    in-out property <length> scroll-offset-y <=> history-scroll.content-y;
     out property <length> scroll-visible-height: history-scroll.visible-height;
 
     callback request-select-history-item(int);

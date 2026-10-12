@@ -56,8 +56,7 @@ fn create_tray_icon(menu: &Menu) -> Result<TrayIcon, Box<dyn std::error::Error>>
     #[cfg(target_os = "macos")]
     let tray_icon = TrayIconBuilder::new()
         .with_tooltip("クリップキーパー")
-        .with_icon(icon)
-        .with_icon_as_template(true)
+        .with_icon_templated(icon)
         .with_menu(Box::new(menu.clone()))
         .build()?;
 

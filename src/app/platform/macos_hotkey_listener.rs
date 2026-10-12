@@ -1,29 +1,13 @@
-use std::ffi::c_void;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
-use cocoa::base::{id, nil};
-use cocoa::foundation::NSAutoreleasePool;
-use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, EventField};
-use rdev::EventType;
-use rdev::Key;
-
-type CFMachPortRef = *const c_void;
-type CFRunLoopMode = id;
-type CFRunLoopRef = id;
-type CFRunLoopSourceRef = id;
-type CGEventRef = CGEvent;
-type CGEventTapPlacement = u32;
-type CGEventTapProxy = id;
-type CGEventMask = u64;
-
-const KCG_HEAD_INSERT_EVENT_TAP: CGEventTapPlacement = 0;
-const KEY_EVENT_MASK: CGEventMask = (1 << CGEventType::KeyDown as u64)
-    | (1 << CGEventType::KeyUp as u64)
-    | (1 << CGEventType::FlagsChanged as u64);
-
-static GLOBAL_CALLBACK: Mutex<Option<Box<dyn FnMut(EventType) + Send>>> = Mutex::new(None);
-static LAST_FLAGS: AtomicU64 = AtomicU64::new(CGEventFlags::CGEventFlagNull.bits());
+use core_foundation::runloop::{kCFRunLoopCommonModes, CFRunLoop};
+use core_graphics::event::{
+    CGEvent, CGEventFlags, CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement,
+    CGEventType, CallbackResult, EventField,
+};
+use objc2::rc::autoreleasepool;
+use rdev::{EventType, Key};
 
 #[derive(Debug)]
 pub enum MacHotkeyListenError {
@@ -31,98 +15,49 @@ pub enum MacHotkeyListenError {
     LoopSourceError,
 }
 
-#[link(name = "Cocoa", kind = "framework")]
-extern "C" {
-    fn CGEventTapCreate(
-        tap: CGEventTapLocation,
-        place: CGEventTapPlacement,
-        options: CGEventTapOption,
-        events_of_interest: CGEventMask,
-        callback: EventTapCallback,
-        user_info: id,
-    ) -> CFMachPortRef;
-    fn CFMachPortCreateRunLoopSource(
-        allocator: id,
-        tap: CFMachPortRef,
-        order: isize,
-    ) -> CFRunLoopSourceRef;
-    fn CFRunLoopAddSource(rl: CFRunLoopRef, source: CFRunLoopSourceRef, mode: CFRunLoopMode);
-    fn CFRunLoopGetCurrent() -> CFRunLoopRef;
-    fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
-    fn CFRunLoopRun();
-
-    static kCFRunLoopCommonModes: CFRunLoopMode;
-}
-
-#[repr(u32)]
-enum CGEventTapOption {
-    ListenOnly = 1,
-}
-
-type EventTapCallback = unsafe extern "C" fn(
-    proxy: CGEventTapProxy,
-    event_type: CGEventType,
-    cg_event: CGEventRef,
-    user_info: *mut c_void,
-) -> CGEventRef;
-
-unsafe extern "C" fn raw_callback(
-    _proxy: CGEventTapProxy,
-    event_type: CGEventType,
-    cg_event: CGEventRef,
-    _user_info: *mut c_void,
-) -> CGEventRef {
-    if let Some(converted) = convert_event(event_type, &cg_event) {
-        let mut global_callback = GLOBAL_CALLBACK
-            .lock()
-            .expect("hotkey callback lock poisoned");
-        if let Some(callback) = global_callback.as_mut() {
-            callback(converted);
-        }
-    }
-    cg_event
-}
-
 pub fn listen<T>(callback: T) -> Result<(), MacHotkeyListenError>
 where
     T: FnMut(EventType) + Send + 'static,
 {
-    unsafe {
-        let mut global_callback = GLOBAL_CALLBACK
-            .lock()
-            .expect("hotkey callback lock poisoned");
-        *global_callback = Some(Box::new(callback));
-        drop(global_callback);
-        LAST_FLAGS.store(CGEventFlags::CGEventFlagNull.bits(), Ordering::Relaxed);
-
-        let _pool = NSAutoreleasePool::new(nil);
-        let tap = CGEventTapCreate(
+    autoreleasepool(|_| {
+        let callback = Mutex::new(callback);
+        let last_flags = AtomicU64::new(CGEventFlags::CGEventFlagNull.bits());
+        let tap = CGEventTap::new(
             CGEventTapLocation::HID,
-            KCG_HEAD_INSERT_EVENT_TAP,
-            CGEventTapOption::ListenOnly,
-            KEY_EVENT_MASK,
-            raw_callback,
-            nil,
-        );
-        if tap.is_null() {
-            return Err(MacHotkeyListenError::EventTapError);
-        }
+            CGEventTapPlacement::HeadInsertEventTap,
+            CGEventTapOptions::ListenOnly,
+            vec![
+                CGEventType::KeyDown,
+                CGEventType::KeyUp,
+                CGEventType::FlagsChanged,
+            ],
+            move |_proxy, event_type, event| {
+                if let Some(converted) = convert_event(event_type, event, &last_flags) {
+                    callback.lock().expect("hotkey callback lock poisoned")(converted);
+                }
+                CallbackResult::Keep
+            },
+        )
+        .map_err(|_| MacHotkeyListenError::EventTapError)?;
 
-        let run_loop_source = CFMachPortCreateRunLoopSource(nil, tap, 0);
-        if run_loop_source.is_null() {
-            return Err(MacHotkeyListenError::LoopSourceError);
-        }
-
-        let current_loop = CFRunLoopGetCurrent();
-        CFRunLoopAddSource(current_loop, run_loop_source, kCFRunLoopCommonModes);
-        CGEventTapEnable(tap, true);
-        CFRunLoopRun();
-    }
-
-    Ok(())
+        let source = tap
+            .mach_port()
+            .create_runloop_source(0)
+            .map_err(|_| MacHotkeyListenError::LoopSourceError)?;
+        let run_loop = CFRunLoop::get_current();
+        // Core Foundationが提供する共通モード定数を読み取る。
+        run_loop.add_source(&source, unsafe { kCFRunLoopCommonModes });
+        tap.enable();
+        CFRunLoop::run_current();
+        Ok(())
+    })
 }
 
-unsafe fn convert_event(event_type: CGEventType, cg_event: &CGEvent) -> Option<EventType> {
+fn convert_event(
+    event_type: CGEventType,
+    cg_event: &CGEvent,
+    last_flags: &AtomicU64,
+) -> Option<EventType> {
     let code = cg_event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE) as u16;
     let key = key_from_code(code);
 
@@ -132,7 +67,7 @@ unsafe fn convert_event(event_type: CGEventType, cg_event: &CGEvent) -> Option<E
         CGEventType::FlagsChanged => {
             let current_flags = cg_event.get_flags();
             let current_bits = current_flags.bits();
-            let previous_bits = LAST_FLAGS.swap(current_bits, Ordering::Relaxed);
+            let previous_bits = last_flags.swap(current_bits, Ordering::Relaxed);
 
             if current_bits < previous_bits {
                 Some(EventType::KeyRelease(key))
@@ -197,5 +132,57 @@ fn key_from_code(code: u16) -> Key {
         60 => Key::ShiftRight,
         62 => Key::ControlRight,
         code => Key::Unknown(code.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+
+    fn keyboard_event(code: u16) -> CGEvent {
+        let source = CGEventSource::new(CGEventSourceStateID::Private).unwrap();
+        CGEvent::new_keyboard_event(source, code, true).unwrap()
+    }
+
+    #[test]
+    fn converts_borrowed_keyboard_events_without_consuming_them() {
+        let event = keyboard_event(0);
+        let flags = AtomicU64::new(0);
+        assert!(matches!(
+            convert_event(CGEventType::KeyDown, &event, &flags),
+            Some(EventType::KeyPress(Key::KeyA))
+        ));
+        assert!(matches!(
+            convert_event(CGEventType::KeyUp, &event, &flags),
+            Some(EventType::KeyRelease(Key::KeyA))
+        ));
+        assert!(convert_event(CGEventType::MouseMoved, &event, &flags).is_none());
+        assert_eq!(
+            event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE),
+            0
+        );
+    }
+
+    #[test]
+    fn modifier_state_is_local_to_each_listener() {
+        let event = keyboard_event(59);
+        let first_flags = AtomicU64::new(0);
+        let second_flags = AtomicU64::new(0);
+        event.set_flags(CGEventFlags::CGEventFlagControl);
+        assert!(matches!(
+            convert_event(CGEventType::FlagsChanged, &event, &first_flags),
+            Some(EventType::KeyPress(Key::ControlLeft))
+        ));
+        assert_eq!(second_flags.load(Ordering::Relaxed), 0);
+        assert!(matches!(
+            convert_event(CGEventType::FlagsChanged, &event, &second_flags),
+            Some(EventType::KeyPress(Key::ControlLeft))
+        ));
+        event.set_flags(CGEventFlags::CGEventFlagNull);
+        assert!(matches!(
+            convert_event(CGEventType::FlagsChanged, &event, &first_flags),
+            Some(EventType::KeyRelease(Key::ControlLeft))
+        ));
     }
 }
